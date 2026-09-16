@@ -1,24 +1,244 @@
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Bell,
+  Bot,
+  BriefcaseBusiness,
+  Building2,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  Download,
+  FileChartColumn,
+  FileSearch,
+  FileSpreadsheet,
+  FileText,
+  LayoutDashboard,
+  Menu,
+  Plus,
+  RefreshCw,
+  Save,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  UploadCloud,
+  UserRound,
+  UsersRound,
+  X,
+} from "lucide-react";
+import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "CreditRiskAI｜企业信贷风险分析助手" },
+      { name: "description", content: "面向银行客户经理的企业信贷资料解析、风险识别与贷前分析工作台。" },
+      { property: "og:title", content: "CreditRiskAI｜企业信贷风险分析助手" },
+      { property: "og:description", content: "企业客户资料、财务指标、风险依据与贷前报告一站式分析。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+type View = "dashboard" | "profile" | "portrait" | "risk" | "evidence" | "report" | "settings";
+type RiskTone = "high" | "medium" | "low";
+
+const navigation = [
+  { id: "dashboard" as const, label: "工作台", icon: LayoutDashboard },
+  { id: "profile" as const, label: "客户资料", icon: Building2 },
+  { id: "portrait" as const, label: "AI客户画像", icon: UsersRound },
+  { id: "risk" as const, label: "风险分析", icon: ShieldCheck },
+  { id: "report" as const, label: "AI分析报告", icon: FileChartColumn },
+  { id: "settings" as const, label: "设置", icon: Settings },
+];
+
+const initialFiles = [
+  { name: "2025年度财务报告.pdf", size: "3.8 MB", type: "pdf" },
+  { name: "企业经营情况说明.pdf", size: "1.2 MB", type: "pdf" },
+  { name: "近12个月银行流水.xlsx", size: "2.6 MB", type: "excel" },
+];
+
 function Index() {
+  const [view, setView] = useState<View>("profile");
+  const [mobileNav, setMobileNav] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [files, setFiles] = useState(initialFiles);
+
+  const changeView = (next: View) => {
+    setView(next);
+    setMobileNav(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const currentTitle = navigation.find((item) => item.id === view)?.label ?? "风险依据详情";
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen bg-app text-foreground">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center border-b border-border bg-background px-4 lg:px-6">
+        <div className="flex w-64 items-center gap-3">
+          <button className="lg:hidden" aria-label="打开导航" onClick={() => setMobileNav(true)}>
+            <Menu className="size-5" />
+          </button>
+          <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
+            <BriefcaseBusiness className="size-5" />
+          </div>
+          <div>
+            <div className="text-[17px] font-bold text-navy">CreditRiskAI</div>
+            <div className="text-[10px] text-muted-foreground">企业信贷风险分析助手</div>
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <Button variant="ghost" size="icon" aria-label="通知" className="relative">
+            <Bell className="size-[18px]" />
+            <span className="absolute right-2 top-2 size-1.5 rounded-full bg-risk-high" />
+          </Button>
+          <span className="hidden h-6 w-px bg-border sm:block" />
+          <div className="grid size-8 place-items-center rounded-full bg-primary-soft font-semibold text-primary">张</div>
+          <div className="hidden sm:block">
+            <div className="text-sm font-medium">张经理</div>
+            <div className="text-[11px] text-muted-foreground">公司业务部</div>
+          </div>
+        </div>
+      </header>
+
+      <aside className={cn("fixed inset-y-16 left-0 z-30 w-60 border-r border-border bg-background p-3 transition-transform lg:translate-x-0", mobileNav ? "translate-x-0" : "-translate-x-full")}>
+        <div className="mb-2 flex items-center justify-between px-3 py-2 lg:hidden">
+          <span className="text-sm font-semibold">功能导航</span>
+          <Button size="icon" variant="ghost" onClick={() => setMobileNav(false)} aria-label="关闭导航"><X className="size-4" /></Button>
+        </div>
+        <nav className="space-y-1" aria-label="主导航">
+          {navigation.map((item) => {
+            const active = item.id === view || (view === "evidence" && item.id === "risk");
+            return (
+              <button key={item.id} onClick={() => changeView(item.id)} className={cn("flex h-11 w-full items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors", active ? "bg-primary-soft text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                <item.icon className="size-[18px]" />{item.label}
+                {active && <span className="ml-auto h-5 w-0.5 rounded-full bg-primary" />}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="absolute bottom-4 left-3 right-3 rounded-md border border-border bg-muted/60 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium"><ShieldCheck className="size-4 text-risk-low" />数据安全保护</div>
+          <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">企业资料仅用于本次信贷分析</p>
+        </div>
+      </aside>
+      {mobileNav && <button className="fixed inset-0 z-20 bg-overlay lg:hidden" aria-label="关闭导航遮罩" onClick={() => setMobileNav(false)} />}
+
+      <main className="pt-16 lg:pl-60">
+        <div className="mx-auto max-w-[1240px] px-5 py-7 lg:px-8 lg:py-8">
+          <div className="mb-6 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>CreditRiskAI</span><ChevronRight className="size-3.5" /><span className="text-foreground">{currentTitle}</span>
+          </div>
+          {view === "dashboard" && <Dashboard onOpen={() => changeView("profile")} />}
+          {view === "profile" && <CustomerProfile files={files} setFiles={setFiles} onNext={() => changeView("portrait")} />}
+          {view === "portrait" && <CustomerPortrait onNext={() => changeView("risk")} />}
+          {view === "risk" && <RiskAnalysis onEvidence={() => changeView("evidence")} />}
+          {view === "evidence" && <Evidence onBack={() => changeView("risk")} onSource={() => setSourceOpen(true)} onReport={() => changeView("report")} />}
+          {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} />}
+          {view === "settings" && <SettingsPage />}
+        </div>
+      </main>
+
+      {sourceOpen && <SourceModal onClose={() => setSourceOpen(false)} />}
     </div>
   );
 }
+
+function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description: string; action?: ReactNode }) {
+  return <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div>{eyebrow && <div className="mb-2 text-xs font-semibold text-primary">{eyebrow}</div>}<h1 className="text-2xl font-bold text-navy lg:text-[28px]">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{description}</p></div>{action}</div>;
+}
+
+function Card({ children, className }: { children: ReactNode; className?: string }) {
+  return <section className={cn("rounded-lg border border-border bg-card shadow-card", className)}>{children}</section>;
+}
+
+function StatusTag({ tone, children }: { tone: RiskTone | "blue"; children: ReactNode }) {
+  const tones = { high: "bg-risk-high-soft text-risk-high", medium: "bg-risk-medium-soft text-risk-medium", low: "bg-risk-low-soft text-risk-low", blue: "bg-primary-soft text-primary" };
+  return <span className={cn("inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium", tones[tone])}>{children}</span>;
+}
+
+function Dashboard({ onOpen }: { onOpen: () => void }) {
+  return <><PageHeader title="工作台" description="欢迎回来，张经理。这里是您当前的客户与分析任务概览。" action={<Button onClick={onOpen}><Plus className="size-4" />发起客户分析</Button>} />
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {[{ label: "待分析客户", value: "6", note: "较昨日 +2", icon: UsersRound }, { label: "本月已完成", value: "24", note: "完成率 92%", icon: CheckCircle2 }, { label: "待跟进风险", value: "8", note: "高风险 2 项", icon: AlertTriangle }, { label: "已生成报告", value: "21", note: "本月累计", icon: FileChartColumn }].map((item) => <Card key={item.label} className="p-5"><div className="mb-5 flex items-center justify-between"><span className="text-sm text-muted-foreground">{item.label}</span><item.icon className="size-5 text-primary" /></div><div className="text-3xl font-bold text-navy">{item.value}</div><div className="mt-2 text-xs text-muted-foreground">{item.note}</div></Card>)}
+    </div>
+    <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <Card><div className="border-b border-border p-5"><h2 className="font-semibold text-navy">近期客户</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr><th className="px-5 py-3 font-medium">客户名称</th><th className="px-5 py-3 font-medium">行业</th><th className="px-5 py-3 font-medium">分析状态</th><th className="px-5 py-3 font-medium">风险等级</th><th className="px-5 py-3 font-medium">更新时间</th></tr></thead><tbody>{[["XX科技有限公司","软件服务","分析完成","中风险","今天 09:42"],["华东设备制造有限公司","装备制造","资料解析中","待评估","昨天 16:25"],["恒瑞商贸有限公司","批发零售","报告待确认","低风险","09月14日"]].map((row, index)=><tr className="border-t border-border first:border-0" key={row[0]}>{row.map((cell,i)=><td key={cell} className="px-5 py-4">{i===0?<button onClick={index===0?onOpen:undefined} className="font-medium text-primary hover:underline">{cell}</button>:i===3?<StatusTag tone={cell==="中风险"?"medium":cell==="低风险"?"low":"blue"}>{cell}</StatusTag>:cell}</td>)}</tr>)}</tbody></table></div></Card>
+      <Card className="p-5"><h2 className="font-semibold text-navy">待办事项</h2><div className="mt-4 space-y-4">{["确认 XX科技有限公司分析报告","补充华东设备制造公司流水","复核恒瑞商贸授信建议"].map((task,i)=><div key={task} className="flex gap-3"><span className={cn("mt-1 size-2 rounded-full",i===0?"bg-risk-high":i===1?"bg-risk-medium":"bg-primary")} /><div><p className="text-sm font-medium">{task}</p><p className="mt-1 text-xs text-muted-foreground">{i===0?"今天到期":"本周内"}</p></div></div>)}</div></Card>
+    </div></>;
+}
+
+function CustomerProfile({ files, setFiles, onNext }: { files: typeof initialFiles; setFiles: (files: typeof initialFiles) => void; onNext: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const addFiles = (list: FileList | null) => { if (!list) return; setFiles([...files, ...Array.from(list).map((file) => ({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(1)} MB`, type: file.name.endsWith("xlsx") ? "excel" : "pdf" }))]); };
+  const onDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); addFiles(event.dataTransfer.files); };
+  return <><PageHeader eyebrow="客户编号 CR-20250916-001" title="客户资料" description="上传并核对企业客户的基础信息与信贷分析材料。" />
+    <Card className="mb-6 p-5 lg:p-6"><div className="grid gap-5 sm:grid-cols-3"><Info label="客户名称" value="XX科技有限公司" icon={<Building2 />} /><Info label="企业类型" value="有限责任公司" icon={<BriefcaseBusiness />} /><Info label="所属行业" value="软件服务" icon={<FileChartColumn />} /></div></Card>
+    <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
+      <Card className="p-5 lg:p-6"><div className="mb-4"><h2 className="font-semibold text-navy">上传客户资料</h2><p className="mt-1 text-xs text-muted-foreground">文件将自动进行安全解析和信息提取</p></div><div onDragOver={(e)=>e.preventDefault()} onDrop={onDrop} onClick={()=>inputRef.current?.click()} className="group flex min-h-60 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-primary/35 bg-primary-subtle p-6 text-center transition-colors hover:border-primary hover:bg-primary-soft/50"><input ref={inputRef} className="hidden" type="file" multiple accept=".pdf,.xlsx,.xls,.doc,.docx" onChange={(e: ChangeEvent<HTMLInputElement>)=>addFiles(e.target.files)} /><div className="mb-4 grid size-12 place-items-center rounded-full bg-primary-soft text-primary"><UploadCloud className="size-6" /></div><div className="font-medium text-navy">拖拽文件到此处上传</div><div className="mt-2 text-sm text-muted-foreground">或点击选择本地文件</div><div className="mt-5 rounded bg-background px-3 py-1.5 text-xs text-muted-foreground">支持 PDF / Excel / Word，单个文件不超过 20MB</div></div></Card>
+      <Card><div className="flex items-center justify-between border-b border-border p-5"><div><h2 className="font-semibold text-navy">已上传资料</h2><p className="mt-1 text-xs text-muted-foreground">共 {files.length} 份，全部解析完成</p></div><StatusTag tone="low"><Check className="size-3" />资料齐全</StatusTag></div><div className="divide-y divide-border">{files.map((file)=><div key={file.name} className="flex items-center gap-3 p-4"><div className={cn("grid size-10 shrink-0 place-items-center rounded-md",file.type==="excel"?"bg-risk-low-soft text-risk-low":"bg-risk-high-soft text-risk-high")}>{file.type==="excel"?<FileSpreadsheet className="size-5"/>:<FileText className="size-5"/>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="mt-1 text-xs text-muted-foreground">{file.size} · 已完成内容识别</p></div><StatusTag tone="low">已解析</StatusTag></div>)}</div></Card>
+    </div><div className="mt-6 flex justify-end"><Button size="lg" onClick={onNext}>开始AI分析<ArrowRight className="size-4" /></Button></div></>;
+}
+
+function Info({ label, value, icon }: { label: string; value: string; icon: ReactNode }) { return <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md bg-muted text-primary [&>svg]:size-5">{icon}</div><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-sm font-semibold text-navy">{value}</p></div></div>; }
+
+function CustomerPortrait({ onNext }: { onNext: () => void }) {
+  const metrics = [{ label:"营业收入", value:"2,580", unit:"万元", change:"+12.5%", up:true },{ label:"净利润", value:"186", unit:"万元", change:"-9.3%", up:false },{ label:"资产负债率", value:"68.2", unit:"%", change:"+4.8个百分点", up:false },{ label:"经营活动现金流", value:"-125", unit:"万元", change:"由正转负", up:false }];
+  return <><PageHeader eyebrow="AI 客户画像" title="XX科技有限公司" description="软件服务业 · 成立8年 · 注册资本1000万元" action={<div className="flex gap-2"><StatusTag tone="low"><CheckCircle2 className="size-3" />AI分析已完成</StatusTag><StatusTag tone="blue"><FileText className="size-3" />数据来源 4份资料</StatusTag></div>} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((m)=><Card key={m.label} className="p-5"><p className="text-sm text-muted-foreground">{m.label}</p><div className="mt-4 flex items-baseline gap-1"><span className="text-3xl font-bold text-navy">{m.value}</span><span className="text-sm text-muted-foreground">{m.unit}</span></div><div className={cn("mt-3 flex items-center gap-1 text-xs font-medium",m.up?"text-risk-low":"text-risk-high")}>{m.up?<TrendingUp className="size-3.5"/>:<TrendingDown className="size-3.5"/>}{m.label === "经营活动现金流" ? m.change : `同比 ${m.change}`}</div></Card>)}</div>
+    <Card className="mt-6 overflow-hidden"><div className="flex items-center gap-3 border-b border-border bg-primary-subtle px-5 py-4"><div className="grid size-9 place-items-center rounded-md bg-primary-soft text-primary"><Sparkles className="size-[18px]" /></div><div><h2 className="font-semibold text-navy">AI初步洞察</h2><p className="text-xs text-muted-foreground">基于客户资料与财务数据综合分析</p></div></div><div className="p-6"><p className="text-base font-semibold text-navy">收入保持增长，但盈利质量及现金流值得进一步关注。</p><p className="mt-3 max-w-4xl text-sm leading-7 text-muted-foreground">2025年营业收入同比增长12.5%，业务规模保持扩张；但净利润同比下降9.3%，经营活动现金流由正转为-125万元，盈利增长与现金回款出现背离。建议进一步核查应收账款账期及主要客户回款情况。</p><div className="mt-5 flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><Bot className="size-4 text-primary" />由 AI 基于 4 份资料生成，关键结论均可追溯原始依据</div></div></Card>
+    <div className="mt-6 flex justify-end"><Button size="lg" onClick={onNext}>查看风险分析<ArrowRight className="size-4" /></Button></div></>;
+}
+
+function RiskAnalysis({ onEvidence }: { onEvidence: () => void }) {
+  const risks = [{title:"经营现金流风险",tone:"high" as const,label:"高风险",text:"2025年经营活动现金流净额为-125万元，由2024年的+80万元转为负值。",source:"2025年度财务报告 · 第12页"},{title:"盈利能力下降",tone:"medium" as const,label:"中风险",text:"2025年净利润同比下降9.3%，但营业收入同比增长12.5%，收入与利润变动趋势背离。",source:"2025年度财务报告 · 第8页"},{title:"资产负债率上升",tone:"medium" as const,label:"中风险",text:"资产负债率由63.4%上升至68.2%，整体债务负担有所增加。",source:"2025年度财务报告 · 第6页"},{title:"主营业务稳定",tone:"low" as const,label:"低风险",text:"核心软件服务业务收入占比稳定，主要客户结构未发生重大变化。",source:"企业经营情况说明 · 第3页"}];
+  return <><PageHeader eyebrow="XX科技有限公司" title="风险分析" description="基于已上传资料识别关键风险信号，并提供可追溯判断依据。" />
+    <Card className="mb-6 p-5 lg:p-6"><div className="grid gap-6 lg:grid-cols-[1fr_1.3fr_.8fr] lg:items-center"><div><p className="text-sm text-muted-foreground">综合风险等级</p><div className="mt-2 flex items-center gap-3"><span className="size-3 rounded-full bg-risk-medium" /><span className="text-3xl font-bold text-risk-medium">中风险</span></div></div><div className="grid grid-cols-3 gap-3 border-y border-border py-5 lg:border-x lg:border-y-0 lg:px-6 lg:py-0">{[["高风险","1项","high"],["中风险","2项","medium"],["低风险","1项","low"]].map(([label,value,tone])=><div key={label} className="text-center"><p className={cn("text-xl font-bold",tone==="high"?"text-risk-high":tone==="medium"?"text-risk-medium":"text-risk-low")}>{value}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div><div><div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">AI分析置信度</span><strong className="text-navy">91%</strong></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full w-[91%] rounded-full bg-primary" /></div><p className="mt-2 text-xs text-muted-foreground">资料完整度较高</p></div></div></Card>
+    <div className="mb-6 flex items-start gap-3 rounded-md border border-compliance-border bg-compliance px-4 py-3 text-sm text-compliance-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0" /><span><strong>合规提示：</strong>AI辅助分析结果，不代表最终授信决策。请结合尽职调查及审批制度独立判断。</span></div>
+    <div className="space-y-4">{risks.map((risk,index)=><Card key={risk.title} className="p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div className="flex gap-4"><span className={cn("mt-1 grid size-8 shrink-0 place-items-center rounded-md text-sm font-bold",risk.tone==="high"?"bg-risk-high-soft text-risk-high":risk.tone==="medium"?"bg-risk-medium-soft text-risk-medium":"bg-risk-low-soft text-risk-low")}>{index+1}</span><div><div className="flex items-center gap-2"><h3 className="font-semibold text-navy">{risk.title}</h3><StatusTag tone={risk.tone}>{risk.label}</StatusTag></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{risk.text}</p><p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><FileSearch className="size-3.5" />{risk.source}</p></div></div>{index===0&&<Button variant="outline" size="sm" onClick={onEvidence}>查看依据<ArrowRight className="size-3.5" /></Button>}</div></Card>)}</div></>;
+}
+
+function Evidence({ onBack, onSource, onReport }: { onBack: () => void; onSource: () => void; onReport: () => void }) {
+  const steps=["经营现金流由正转负","现金回款能力下降","短期偿债压力增加","需要进一步核查客户回款"];
+  return <><button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />返回风险分析</button><PageHeader title="风险依据详情" description="查看风险判断的关键数据、分析逻辑与原始资料出处。" />
+    <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+      <div className="space-y-6"><Card><div className="border-b border-border p-5 lg:p-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md bg-risk-high-soft text-risk-high"><AlertTriangle className="size-5" /></div><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold text-navy">经营现金流风险</h2><StatusTag tone="high">高风险</StatusTag></div><p className="mt-1 text-xs text-muted-foreground">风险编号 RISK-CF-001</p></div></div></div><div className="p-5 lg:p-6"><h3 className="text-sm font-semibold text-navy">AI判断</h3><p className="mt-2 rounded-md border-l-2 border-risk-high bg-risk-high-soft/50 px-4 py-3 text-sm leading-6">2025年经营活动现金流明显恶化，存在短期现金流压力，需重点关注应收款回收及偿债资金安排。</p><h3 className="mb-3 mt-6 text-sm font-semibold text-navy">关键数据对比</h3><div className="grid gap-3 sm:grid-cols-3"><DataPoint label="2024年经营活动现金流" value="+80万元" tone="low" /><DataPoint label="2025年经营活动现金流" value="-125万元" tone="high" /><DataPoint label="同比变化" value="-205万元" tone="high" /></div></div></Card>
+      <Card className="p-5 lg:p-6"><div className="mb-5 flex items-center gap-2"><Bot className="size-5 text-primary" /><h2 className="font-semibold text-navy">AI分析推理链</h2></div><div className="grid gap-2 md:grid-cols-4">{steps.map((step,index)=><div key={step} className="flex items-center md:flex-col"><div className="relative flex flex-1 items-center md:w-full"><div className="flex min-h-20 w-full items-center justify-center rounded-md border border-border bg-muted/50 p-3 text-center text-sm font-medium text-navy"><span className="mr-2 text-xs text-primary">0{index+1}</span>{step}</div>{index<steps.length-1&&<ArrowRight className="mx-2 hidden size-4 shrink-0 text-muted-foreground md:block" />}</div>{index<steps.length-1&&<div className="mx-3 h-5 w-px bg-border md:hidden" />}</div>)}</div></Card></div>
+      <Card className="h-fit p-5"><div className="flex items-center gap-2"><FileSearch className="size-5 text-primary"/><h2 className="font-semibold text-navy">溯源依据</h2></div><div className="mt-5 rounded-md border border-border p-4"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-risk-high-soft text-risk-high"><FileText className="size-5"/></div><div><p className="text-sm font-medium">2025年度财务报告.pdf</p><p className="mt-1 text-xs text-muted-foreground">第12页 · 现金流量表</p></div></div><div className="mt-4 border-l-2 border-risk-medium bg-risk-medium-soft/50 px-3 py-3 text-sm leading-6">“经营活动产生的现金流量净额为 <mark className="bg-highlight px-1 font-semibold text-foreground">-125万元</mark>，上年同期为80万元……”</div><Button className="mt-4 w-full" variant="outline" onClick={onSource}><FileSearch className="size-4"/>查看原文</Button></div><div className="mt-5 border-t border-border pt-5"><Button className="w-full" onClick={onReport}><Plus className="size-4"/>加入分析报告</Button><p className="mt-3 text-center text-[11px] text-muted-foreground">该风险及依据将写入报告第四部分</p></div></Card>
+    </div></>;
+}
+
+function DataPoint({ label, value, tone }: { label: string; value: string; tone: "low"|"high" }) { return <div className="rounded-md border border-border bg-muted/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className={cn("mt-2 text-xl font-bold",tone==="high"?"text-risk-high":"text-risk-low")}>{value}</p></div>; }
+
+function Report({ saved, onSave }: { saved: boolean; onSave: () => void }) {
+  const exportReport=()=>{const text="贷前风险分析报告\n\n客户：XX科技有限公司\n综合风险等级：中风险\n\n本报告由 CreditRiskAI 辅助生成，不代表最终授信决策。";const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="XX科技有限公司-贷前风险分析报告.txt";a.click();URL.revokeObjectURL(url);};
+  return <><PageHeader eyebrow="XX科技有限公司" title="AI分析报告" description="报告编号 CRA-2025-0916-001 · 生成时间 2026-09-16 09:42" action={<StatusTag tone={saved?"low":"blue"}>{saved?<><Check className="size-3"/>草稿已保存</>:"待确认"}</StatusTag>} />
+    <Card className="mx-auto max-w-4xl overflow-hidden"><div className="border-b-4 border-primary px-6 py-8 text-center lg:px-12"><div className="text-xs font-semibold text-primary">CREDIT RISK ASSESSMENT</div><h2 className="mt-3 text-2xl font-bold text-navy">贷前风险分析报告</h2><p className="mt-3 text-sm text-muted-foreground">XX科技有限公司</p></div><article className="space-y-8 px-6 py-8 text-sm leading-7 lg:px-12">{[
+      ["一、客户基本情况",<p key="1">XX科技有限公司成立于2018年，注册资本1,000万元，企业类型为有限责任公司，主营软件技术服务及相关解决方案。企业持续经营8年，当前经营状态正常。</p>],
+      ["二、经营情况",<p key="2">2025年公司营业收入2,580万元，同比增长12.5%，主营业务保持增长。核心软件服务业务收入占比稳定，未发现主营业务发生重大不利变化。</p>],
+      ["三、财务情况",<div key="3"><p>2025年净利润186万元，同比下降9.3%；资产负债率为68.2%，较上年增加4.8个百分点；经营活动现金流净额为-125万元。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="营业收入" value="2,580万元"/><MiniMetric label="净利润" value="186万元"/><MiniMetric label="资产负债率" value="68.2%"/></div></div>],
+      ["四、风险分析",<div key="4" className="space-y-3"><ReportRisk tone="high" title="经营现金流风险">经营活动现金流由上年+80万元转为-125万元，现金回款能力下降，可能增加短期偿债压力。</ReportRisk><ReportRisk tone="medium" title="盈利能力下降">营业收入增长的同时净利润下降，需核查成本费用增长及毛利率变化原因。</ReportRisk><ReportRisk tone="medium" title="资产负债率上升">负债率上升至68.2%，需结合有息负债结构评估债务承受能力。</ReportRisk></div>],
+      ["五、建议进一步核查事项",<ol key="5" className="list-decimal space-y-2 pl-5"><li>核查主要应收账款客户、账龄及期后回款情况。</li><li>了解净利润下降的具体原因及主要成本费用变动。</li><li>核实短期借款到期安排及可用授信额度。</li><li>持续关注关联交易及对外担保情况。</li></ol>]
+    ].map(([title,content])=><section key={title as string}><h3 className="mb-3 border-l-3 border-primary pl-3 text-base font-bold text-navy">{title}</h3><div className="text-report-body">{content}</div></section>)}</article><div className="border-t border-border bg-muted/40 px-6 py-4 text-center text-xs text-muted-foreground">本报告由 AI 辅助生成，不代表最终授信决策。请由有权审批人员审慎复核。</div></Card>
+    <div className="sticky bottom-0 mt-6 flex flex-wrap justify-end gap-3 border-t border-border bg-app/95 py-4 backdrop-blur"><Button variant="outline" onClick={()=>window.location.reload()}><RefreshCw className="size-4"/>重新生成</Button><Button variant="outline" onClick={onSave}><Save className="size-4"/>{saved?"已保存":"保存草稿"}</Button><Button onClick={exportReport}><Download className="size-4"/>确认并导出</Button></div></>;
+}
+
+function MiniMetric({label,value}:{label:string;value:string}){return <div className="rounded-md bg-muted px-3 py-2"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold text-navy">{value}</p></div>}
+function ReportRisk({tone,title,children}:{tone:RiskTone;title:string;children:ReactNode}){return <div className="rounded-md border border-border p-4"><div className="flex items-center gap-2"><StatusTag tone={tone}>{tone==="high"?"高风险":"中风险"}</StatusTag><strong className="text-navy">{title}</strong></div><p className="mt-2">{children}</p></div>}
+
+function SettingsPage(){const [notify,setNotify]=useState(true);const [auto,setAuto]=useState(false);return <><PageHeader title="系统设置" description="管理个人偏好、分析规则与通知方式。"/><div className="grid gap-6 lg:grid-cols-[260px_1fr]"><Card className="h-fit p-3">{["个人信息","分析偏好","通知设置","安全与合规"].map((x,i)=><button key={x} className={cn("flex h-10 w-full items-center rounded-md px-3 text-sm",i===0?"bg-primary-soft font-medium text-primary":"text-muted-foreground hover:bg-muted")}>{x}</button>)}</Card><div className="space-y-6"><Card className="p-6"><h2 className="font-semibold text-navy">个人信息</h2><div className="mt-5 grid gap-5 sm:grid-cols-2"><SettingField label="姓名" value="张经理"/><SettingField label="所属部门" value="公司业务部"/><SettingField label="岗位" value="客户经理"/><SettingField label="员工编号" value="CM-0862"/></div><div className="mt-5"><Button>保存修改</Button></div></Card><Card className="p-6"><h2 className="font-semibold text-navy">通知设置</h2><ToggleRow title="分析完成通知" text="客户资料分析完成后向我发送站内通知" value={notify} onClick={()=>setNotify(!notify)}/><ToggleRow title="自动保存报告草稿" text="编辑报告时每隔 5 分钟自动保存" value={auto} onClick={()=>setAuto(!auto)}/></Card></div></div></>}
+function SettingField({label,value}:{label:string;value:string}){return <label className="text-sm"><span className="mb-2 block text-xs text-muted-foreground">{label}</span><input defaultValue={value} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:ring-2 focus:ring-ring"/></label>}
+function ToggleRow({title,text,value,onClick}:{title:string;text:string;value:boolean;onClick:()=>void}){return <div className="mt-5 flex items-center justify-between gap-5 border-t border-border pt-5 first:border-0"><div><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs text-muted-foreground">{text}</p></div><button role="switch" aria-checked={value} onClick={onClick} className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors",value?"bg-primary":"bg-muted-foreground/30")}><span className={cn("absolute top-1 size-4 rounded-full bg-background transition-all",value?"left-6":"left-1")}/></button></div>}
+
+function SourceModal({onClose}:{onClose:()=>void}){return <div className="fixed inset-0 z-50 grid place-items-center bg-overlay p-4" role="dialog" aria-modal="true" aria-label="原文预览"><div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg bg-background shadow-dialog"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="font-semibold text-navy">原文预览</h2><p className="mt-1 text-xs text-muted-foreground">2025年度财务报告.pdf · 第12页</p></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭"><X className="size-5"/></Button></div><div className="max-h-[68vh] overflow-y-auto bg-document p-5 sm:p-8"><div className="mx-auto min-h-[620px] max-w-xl bg-background p-8 shadow-document sm:p-12"><div className="border-b border-foreground pb-3 text-center"><h3 className="text-lg font-bold">现金流量表</h3><p className="mt-1 text-xs text-muted-foreground">2025年度 · 单位：人民币万元</p></div><div className="mt-8 grid grid-cols-[1fr_100px_100px] border-y border-border text-sm font-medium"><span className="p-3">项目</span><span className="border-l border-border p-3 text-right">本期金额</span><span className="border-l border-border p-3 text-right">上期金额</span></div>{[["销售商品、提供劳务收到的现金","2,205","2,118"],["购买商品、接受劳务支付的现金","1,496","1,332"],["支付给职工以及为职工支付的现金","615","536"],["支付的各项税费","219","170"]].map(row=><div className="grid grid-cols-[1fr_100px_100px] border-b border-border text-xs" key={row[0]}><span className="p-3">{row[0]}</span><span className="border-l border-border p-3 text-right">{row[1]}</span><span className="border-l border-border p-3 text-right">{row[2]}</span></div>)}<div className="mt-5 grid grid-cols-[1fr_100px_100px] border-y-2 border-risk-medium bg-highlight text-sm font-bold"><span className="p-3">经营活动产生的现金流量净额</span><span className="border-l border-risk-medium/30 p-3 text-right text-risk-high">-125</span><span className="border-l border-risk-medium/30 p-3 text-right">80</span></div><p className="mt-8 text-xs leading-6 text-muted-foreground">注：经营活动产生的现金流量净额较上年同期减少205万元，主要受部分项目回款周期延长及人员成本增加影响。</p><div className="mt-24 text-center text-xs text-muted-foreground">— 第 12 页 —</div></div></div><div className="flex justify-end border-t border-border px-5 py-4"><Button onClick={onClose}>完成查看</Button></div></div></div>}
