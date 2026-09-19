@@ -72,8 +72,6 @@
 
 CreditRisk AI 将 AI 能力拆分为四个核心环节：
 
-```text
-```text
 企业资料
    ↓
 AI资料解析
