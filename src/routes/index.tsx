@@ -32,7 +32,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -155,7 +155,7 @@ function Index() {
           {view === "portrait" && <CustomerPortrait financialData={financialData} onNext={() => changeView("risk")} />}
           {view === "risk" && <RiskAnalysis financialData={financialData} onEvidence={() => changeView("evidence")} />}
           {view === "evidence" && <Evidence onBack={() => changeView("risk")} onSource={() => setSourceOpen(true)} onReport={() => changeView("report")} />}
-          {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} />}
+          {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} financialData={financialData} />}
           {view === "settings" && <SettingsPage />}
         </div>
       </main>
@@ -500,20 +500,74 @@ function Evidence({ onBack, onSource, onReport }: { onBack: () => void; onSource
 
 function DataPoint({ label, value, tone }: { label: string; value: string; tone: "low"|"high" }) { return <div className="rounded-md border border-border bg-muted/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className={cn("mt-2 text-xl font-bold",tone==="high"?"text-risk-high":"text-risk-low")}>{value}</p></div>; }
 
-const defaultReportText = `一、客户基本情况\nXX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。\n\n二、经营情况\n2025年营业收入2580万元，同比增长12.5%，核心软件服务业务保持稳定。\n\n三、财务情况\n2025年净利润186万元，同比下降9.3%；资产负债率68.2%，较上年上升4.8个百分点；经营活动现金流净额-125万元，由正转负。\n\n四、风险分析\n1. 经营现金流风险（高风险）：建议核查主要客户回款、应收账款变化及经营现金流形成原因。\n2. 盈利能力下降（中风险）：建议核查成本费用及利润变动原因。\n3. 资产负债率上升（中风险）：建议结合负债结构及短期偿债能力进一步判断。\n4. 主营业务稳定（低风险）：当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。\n\n五、建议进一步核查事项\n1. 核查客户回款与应收账款。\n2. 了解净利润下降原因。\n3. 核查负债结构与短期偿债能力。\n4. 结合尽调进一步确认经营情况。`;
+function createEmptyReportText() {
+  return `一、客户基本情况\n请上传 Excel 财务数据后，系统将自动生成客户基本情况和财务分析结论。\n\n二、经营情况\n当前未上传有效财务数据，无法生成营业收入及同比分析结论。\n\n三、财务情况\n当前未上传有效财务数据，无法生成净利润、资产负债率和经营活动现金流相关结论。\n\n四、风险分析\n1. 资料不足（中风险）：当前未上传有效财务数据，无法自动识别关键财务风险信号。\n2. 需补充核实（中风险）：建议补充两期财务数据后再生成完整报告。\n\n五、建议进一步核查事项\n1. 上传有效的 Excel 财务数据。\n2. 补充至少两期财务数据用于同比分析。\n3. 结合尽调资料进一步确认经营情况。`;
+}
 
-function Report({ saved, onSave }: { saved: boolean; onSave: () => void }) {
+function buildReportText(financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null) {
+  if (!financialData || financialData.periods.length < 2) {
+    return createEmptyReportText();
+  }
+
+  const previous = financialData.periods[0].data;
+  const current = financialData.periods[1].data;
+  const currentMetrics = calculateFinancialMetrics(current);
+  const changes = calculateMetricChanges(previous, current);
+
+  const revenueText = current.revenue !== undefined ? `${current.revenue.toLocaleString()}万元` : "暂不可用";
+  const revenueYoYText = changes.revenueYoY !== undefined
+    ? `同比${changes.revenueYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.revenueYoY).toFixed(1)}%`
+    : "同比暂不可计算";
+
+  const netProfitText = current.netProfit !== undefined ? `${current.netProfit.toLocaleString()}万元` : "暂不可用";
+  const netProfitYoYText = changes.netProfitYoY !== undefined
+    ? `同比${changes.netProfitYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.netProfitYoY).toFixed(1)}%`
+    : "同比暂不可计算";
+
+  const debtRatioText = currentMetrics.debtRatio !== undefined ? `${currentMetrics.debtRatio.toFixed(1)}%` : "暂不可用";
+  const debtRatioChangeText = changes.debtRatioChange !== undefined
+    ? `${changes.debtRatioChange >= 0 ? "上升" : "下降"}${Math.abs(changes.debtRatioChange).toFixed(1)}个百分点`
+    : "较上期变化暂不可计算";
+
+  const operatingCashFlowText = current.operatingCashFlow !== undefined ? `${current.operatingCashFlow.toLocaleString()}万元` : "暂不可用";
+  const operatingCashFlowChangeText =
+    previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined
+      ? `${current.operatingCashFlow - previous.operatingCashFlow >= 0 ? "增加" : "减少"}${Math.abs(current.operatingCashFlow - previous.operatingCashFlow).toLocaleString()}万元`
+      : "变化暂不可计算";
+
+  const operatingCashFlowSummary =
+    previous.operatingCashFlow !== undefined &&
+    current.operatingCashFlow !== undefined &&
+    previous.operatingCashFlow >= 0 &&
+    current.operatingCashFlow < 0
+      ? `由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负`
+      : `较上期${operatingCashFlowChangeText}`;
+
+  const riskSummary = currentMetrics.debtRatio !== undefined && previous.operatingCashFlow !== undefined
+    ? "资产负债率及现金流情况需结合负债结构与回款情况进一步判断。"
+    : "资产负债率水平需结合负债结构及偿债能力进一步判断。";
+
+  return `一、客户基本情况\nXX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。\n\n二、经营情况\n${financialData.periods[1].period}年营业收入${revenueText}，${revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。\n\n三、财务情况\n${financialData.periods[1].period}年净利润${netProfitText}，${netProfitYoYText}；资产负债率${debtRatioText}，${debtRatioChangeText}；经营活动现金流净额${operatingCashFlowText}，${operatingCashFlowSummary}。\n\n四、风险分析\n1. 经营现金流风险：${current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "当前经营活动现金流为负值，建议重点核查回款、应收账款和现金流形成原因。" : "经营活动现金流情况需结合回款与应收账款进一步核查。"}\n2. 盈利能力判断：${current.netProfit !== undefined && current.netProfit < 0 ? "当前净利润为负，盈利能力存在压力，建议核查成本费用及利润变动原因。" : "净利润水平根据已上传财务数据进行判断，建议核查成本与费用控制情况。"}\n3. 资产负债率判断：${riskSummary}\n4. 主营业务稳定性：结合已上传财务数据及经营信息，建议进一步核查收入结构和客户集中度。\n\n五、建议进一步核查事项\n1. 核查客户回款与应收账款变化。\n2. 了解净利润变动原因及盈利质量。\n3. 核查负债结构与短期偿债能力。\n4. 结合尽调进一步确认经营情况。`;
+}
+
+function Report({ saved, onSave, financialData }: { saved: boolean; onSave: () => void; financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null }) {
   const [editing,setEditing]=useState(false);
   const [hasEdited,setHasEdited]=useState(false);
-  const [reportText,setReportText]=useState(defaultReportText);
+  const [reportText,setReportText]=useState(() => buildReportText(financialData));
   const [regenerating,setRegenerating]=useState(false);
   const [confirmed,setConfirmed]=useState(false);
-  const regenerate=()=>{setEditing(false);setRegenerating(true);setConfirmed(false);window.setTimeout(()=>{setReportText(defaultReportText);setHasEdited(false);setRegenerating(false);},900);};
+
+  useEffect(() => {
+    setReportText(buildReportText(financialData));
+    setHasEdited(false);
+  }, [financialData]);
+
+  const regenerate=()=>{setEditing(false);setRegenerating(true);setConfirmed(false);window.setTimeout(()=>{setReportText(buildReportText(financialData));setHasEdited(false);setRegenerating(false);},900);};
   const confirmAndExport=()=>{setConfirmed(true);const text=`贷前风险分析报告\n客户：XX科技有限公司\n\n${reportText}\n\n本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。`;const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="XX科技有限公司-贷前风险分析报告.txt";a.click();URL.revokeObjectURL(url);};
   return <><PageHeader eyebrow="XX科技有限公司" title="AI分析报告" description="AI根据已解析资料生成贷前风险分析初稿，客户经理审核后可确认并导出。" action={<div className="flex flex-wrap gap-2"><StatusTag tone={confirmed?"low":"medium"}>{confirmed?<><Check className="size-3"/>报告已确认</>:"待确认"}</StatusTag><StatusTag tone="blue"><Bot className="size-3"/>AI初稿 · 待人工审核</StatusTag></div>} />
     {confirmed&&<div className="mx-auto mb-6 flex max-w-4xl items-start gap-3 rounded-lg border border-risk-low/25 bg-risk-low-soft p-5"><CheckCircle2 className="mt-0.5 size-5 shrink-0 text-risk-low"/><div><h2 className="font-semibold text-navy">贷前风险分析报告已生成</h2><p className="mt-1 text-sm text-muted-foreground">本报告基于1份 Excel 中的两期财务数据生成，最终内容已由客户经理确认。</p></div></div>}
     <Card className="mx-auto max-w-4xl overflow-hidden"><div className="border-b-4 border-primary px-6 py-8 text-center lg:px-12"><div className="text-xs font-semibold text-primary">CREDIT RISK ASSESSMENT</div><h2 className="mt-3 text-2xl font-bold text-navy">贷前风险分析报告</h2><p className="mt-3 text-sm text-muted-foreground">客户：XX科技有限公司</p></div>
-      {regenerating?<div className="flex min-h-96 flex-col items-center justify-center px-6 py-12 text-center"><RefreshCw className="size-7 animate-spin text-primary"/><p className="mt-4 font-medium text-navy">正在重新生成分析报告……</p></div>:editing?<div className="px-6 py-8 lg:px-12"><label className="mb-3 block text-sm font-semibold text-navy" htmlFor="report-editor">报告正文</label><textarea id="report-editor" value={reportText} onChange={(event)=>setReportText(event.target.value)} className="min-h-[620px] w-full resize-y rounded-md border border-input bg-background p-4 text-sm leading-7 text-report-body outline-none focus:ring-2 focus:ring-ring"/><div className="mt-4 flex justify-end"><Button onClick={()=>{setHasEdited(true);setEditing(false)}}><Check className="size-4"/>完成编辑并保存</Button></div></div>:hasEdited?<article className="whitespace-pre-wrap px-6 py-8 text-sm leading-7 text-report-body lg:px-12">{reportText}</article>:<ReportContent />}
+      {regenerating?<div className="flex min-h-96 flex-col items-center justify-center px-6 py-12 text-center"><RefreshCw className="size-7 animate-spin text-primary"/><p className="mt-4 font-medium text-navy">正在重新生成分析报告……</p></div>:editing?<div className="px-6 py-8 lg:px-12"><label className="mb-3 block text-sm font-semibold text-navy" htmlFor="report-editor">报告正文</label><textarea id="report-editor" value={reportText} onChange={(event)=>setReportText(event.target.value)} className="min-h-[620px] w-full resize-y rounded-md border border-input bg-background p-4 text-sm leading-7 text-report-body outline-none focus:ring-2 focus:ring-ring"/><div className="mt-4 flex justify-end"><Button onClick={()=>{setHasEdited(true);setEditing(false)}}><Check className="size-4"/>完成编辑并保存</Button></div></div>:hasEdited?<article className="whitespace-pre-wrap px-6 py-8 text-sm leading-7 text-report-body lg:px-12">{reportText}</article>:<ReportContent financialData={financialData} />}
       <div className="grid gap-2 border-t border-border bg-primary-subtle/40 px-6 py-4 text-xs text-muted-foreground sm:grid-cols-3 lg:px-12">{["已引用1份资料","风险项已自动识别","风险依据可追溯"].map(item=><span key={item} className="flex items-center gap-1.5"><Check className="size-3.5 text-risk-low"/>{item}</span>)}</div>
       <div className="border-t border-border bg-muted/40 px-6 py-4 text-center text-xs leading-6 text-muted-foreground">本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。最终判断应由相关业务人员依据尽调资料及业务制度完成。</div>
     </Card>
@@ -522,13 +576,42 @@ function Report({ saved, onSave }: { saved: boolean; onSave: () => void }) {
   </>;
 }
 
-function ReportContent(){return <article className="space-y-8 px-6 py-8 text-sm leading-7 lg:px-12">
-  <ReportSection title="一、客户基本情况"><p>XX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。</p></ReportSection>
-  <ReportSection title="二、经营情况"><p>2025年营业收入2580万元，同比增长12.5%，核心软件服务业务保持稳定。</p></ReportSection>
-  <ReportSection title="三、财务情况"><p>2025年净利润186万元，同比下降9.3%；资产负债率68.2%，较上年上升4.8个百分点；经营活动现金流净额-125万元，由正转负。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value="186万元 · -9.3%"/><MiniMetric label="资产负债率" value="68.2% · +4.8个百分点"/><MiniMetric label="经营现金流" value="-125万元 · 由正转负"/></div></ReportSection>
-  <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone="high" number="1" title="经营现金流风险">建议核查主要客户回款、应收账款变化及经营现金流形成原因。</ReportRisk><ReportRisk tone="medium" number="2" title="盈利能力下降">建议核查成本费用及利润变动原因。</ReportRisk><ReportRisk tone="medium" number="3" title="资产负债率上升">建议结合负债结构及短期偿债能力进一步判断。</ReportRisk><ReportRisk tone="low" number="4" title="主营业务稳定">当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。</ReportRisk></div></ReportSection>
-  <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>核查客户回款与应收账款。</li><li>了解净利润下降原因。</li><li>核查负债结构与短期偿债能力。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
-</article>}
+function ReportContent({ financialData }: { financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null }) {
+  if (!financialData || financialData.periods.length < 2) {
+    return <article className="space-y-8 px-6 py-8 text-sm leading-7 text-muted-foreground lg:px-12">
+      <ReportSection title="一、客户基本情况"><p>请上传 Excel 财务数据后，系统将自动生成客户基本情况和财务摘要。</p></ReportSection>
+      <ReportSection title="二、经营情况"><p>当前未上传有效财务数据，无法生成营业收入及同比分析结论。</p></ReportSection>
+      <ReportSection title="三、财务情况"><p>当前未上传有效财务数据，无法生成净利润、资产负债率及经营活动现金流相关结论。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value="暂不可用"/><MiniMetric label="资产负债率" value="暂不可用"/><MiniMetric label="经营现金流" value="暂不可用"/></div></ReportSection>
+      <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone="medium" number="1" title="资料不足">当前未上传有效财务数据，无法自动识别关键财务风险信号。</ReportRisk></div></ReportSection>
+      <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>上传有效的 Excel 财务数据。</li><li>补充至少两期财务数据用于同比分析。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
+    </article>;
+  }
+
+  const previous = financialData.periods[0].data;
+  const current = financialData.periods[1].data;
+  const changes = calculateMetricChanges(previous, current);
+  const currentMetrics = calculateFinancialMetrics(current);
+
+  const revenueText = current.revenue !== undefined ? `${current.revenue.toLocaleString()}万元` : "暂不可用";
+  const revenueYoYText = changes.revenueYoY !== undefined ? `${changes.revenueYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.revenueYoY).toFixed(1)}%` : "暂不可计算";
+  const netProfitText = current.netProfit !== undefined ? `${current.netProfit.toLocaleString()}万元` : "暂不可用";
+  const netProfitYoYText = changes.netProfitYoY !== undefined ? `${changes.netProfitYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.netProfitYoY).toFixed(1)}%` : "暂不可计算";
+  const debtRatioText = currentMetrics.debtRatio !== undefined ? `${currentMetrics.debtRatio.toFixed(1)}%` : "暂不可用";
+  const debtRatioChangeText = changes.debtRatioChange !== undefined ? `${changes.debtRatioChange >= 0 ? "上升" : "下降"}${Math.abs(changes.debtRatioChange).toFixed(1)}个百分点` : "暂不可计算";
+  const operatingCashFlowText = current.operatingCashFlow !== undefined ? `${current.operatingCashFlow.toLocaleString()}万元` : "暂不可用";
+  const operatingCashFlowChangeText = previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined
+    ? `${current.operatingCashFlow - previous.operatingCashFlow >= 0 ? "增加" : "减少"}${Math.abs(current.operatingCashFlow - previous.operatingCashFlow).toLocaleString()}万元`
+    : "暂不可计算";
+
+  return <article className="space-y-8 px-6 py-8 text-sm leading-7 lg:px-12">
+    <ReportSection title="一、客户基本情况"><p>XX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。</p></ReportSection>
+    <ReportSection title="二、经营情况"><p>{financialData.periods[1].period}年营业收入{revenueText}，同比{revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。</p></ReportSection>
+    <ReportSection title="三、财务情况"><p>{financialData.periods[1].period}年净利润{netProfitText}，同比{netProfitYoYText}；资产负债率{debtRatioText}，较上期{debtRatioChangeText}；经营活动现金流净额{operatingCashFlowText}，{previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? `由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负` : `较上期${operatingCashFlowChangeText}`}。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value={`${netProfitText} · ${netProfitYoYText}`}/><MiniMetric label="资产负债率" value={`${debtRatioText} · ${debtRatioChangeText}`}/><MiniMetric label="经营现金流" value={`${operatingCashFlowText} · ${previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? "由正转负" : operatingCashFlowChangeText}`}/></div></ReportSection>
+    <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "high" : "medium"} number="1" title={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "经营现金流风险" : "经营现金流情况"}>建议核查主要客户回款、应收账款变化及经营现金流形成原因。</ReportRisk><ReportRisk tone={current.netProfit !== undefined && current.netProfit < 0 ? "medium" : "low"} number="2" title={current.netProfit !== undefined && current.netProfit < 0 ? "盈利能力下降" : "盈利能力保持稳定"}>建议核查成本费用及利润变动原因。</ReportRisk><ReportRisk tone={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "medium" : "low"} number="3" title={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "资产负债率上升" : "资产负债率合理"}>建议结合负债结构及短期偿债能力进一步判断。</ReportRisk><ReportRisk tone="low" number="4" title="主营业务稳定">当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。</ReportRisk></div></ReportSection>
+    <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>核查客户回款与应收账款。</li><li>了解净利润下降原因。</li><li>核查负债结构与短期偿债能力。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
+  </article>;
+}
+
 function ReportSection({title,children}:{title:string;children:ReactNode}){return <section><h3 className="mb-3 border-l-3 border-primary pl-3 text-base font-bold text-navy">{title}</h3><div className="text-report-body">{children}</div></section>}
 function MiniMetric({label,value}:{label:string;value:string}){return <div className="rounded-md bg-muted px-3 py-2"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold text-navy">{value}</p></div>}
 function ReportRisk({tone,number,title,children}:{tone:RiskTone;number:string;title:string;children:ReactNode}){return <div className="rounded-md border border-border p-4"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-muted-foreground">{number}.</span><StatusTag tone={tone}>{tone==="high"?"高风险":tone==="medium"?"中风险":"低风险"}</StatusTag><strong className="text-navy">{title}</strong></div><p className="mt-2">{children}</p></div>}
