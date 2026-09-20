@@ -36,6 +36,12 @@ import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } fr
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  parseFinancialExcel,
+  calculateFinancialMetrics,
+  calculateMetricChanges,
+  analyzeFinancialRisk,
+} from "@/lib/excel-analyzer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -46,6 +52,7 @@ export const Route = createFileRoute("/")({
       { property: "og:description", content: "企业客户资料、财务指标、风险依据与贷前报告一站式分析。" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+
     ],
   }),
   component: Index,
@@ -72,6 +79,7 @@ const initialFiles = [
 
 function Index() {
   const [view, setView] = useState<View>("profile");
+  const [financialData, setFinancialData] = useState<Awaited<ReturnType<typeof parseFinancialExcel>> | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -143,9 +151,9 @@ function Index() {
             <span>CreditRiskAI</span><ChevronRight className="size-3.5" /><span className="text-foreground">{currentTitle}</span>
           </div>
           {view === "dashboard" && <Dashboard onOpen={() => changeView("profile")} />}
-          {view === "profile" && <CustomerProfile files={files} setFiles={setFiles} onNext={() => changeView("portrait")} />}
-          {view === "portrait" && <CustomerPortrait onNext={() => changeView("risk")} />}
-          {view === "risk" && <RiskAnalysis onEvidence={() => changeView("evidence")} />}
+          {view === "profile" && <CustomerProfile files={files} setFiles={setFiles} financialData={financialData} setFinancialData={setFinancialData} onNext={() => changeView("portrait")} />}
+          {view === "portrait" && <CustomerPortrait financialData={financialData} onNext={() => changeView("risk")} />}
+          {view === "risk" && <RiskAnalysis financialData={financialData} onEvidence={() => changeView("evidence")} />}
           {view === "evidence" && <Evidence onBack={() => changeView("risk")} onSource={() => setSourceOpen(true)} onReport={() => changeView("report")} />}
           {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} />}
           {view === "settings" && <SettingsPage />}
@@ -181,9 +189,33 @@ function Dashboard({ onOpen }: { onOpen: () => void }) {
     </div></>;
 }
 
-function CustomerProfile({ files, setFiles, onNext }: { files: typeof initialFiles; setFiles: (files: typeof initialFiles) => void; onNext: () => void }) {
+function CustomerProfile({ files, setFiles, financialData, setFinancialData, onNext }: { files: typeof initialFiles; setFiles: (files: typeof initialFiles) => void; financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null; setFinancialData: (data: Awaited<ReturnType<typeof parseFinancialExcel>>) => void; onNext: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const addFiles = (list: FileList | null) => { if (!list) return; setFiles([...files, ...Array.from(list).map((file) => ({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(1)} MB`, type: file.name.endsWith("xlsx") ? "excel" : "pdf" }))]); };
+  const addFiles = async (list: FileList | null) => {
+  if (!list) return;
+
+  const selectedFiles = Array.from(list);
+
+  for (const file of selectedFiles) {
+    if (file.name.toLowerCase().endsWith(".xlsx")) {
+      try {
+        const data = await parseFinancialExcel(file);
+        setFinancialData(data);
+      } catch (error) {
+        console.error("Excel解析失败:", error);
+      }
+    }
+  }
+
+  setFiles([
+    ...files,
+    ...selectedFiles.map((file) => ({
+      name: file.name,
+      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      type: file.name.toLowerCase().endsWith(".xlsx") ? "excel" : "pdf",
+    })),
+  ]);
+};
   const onDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); addFiles(event.dataTransfer.files); };
   return <><PageHeader eyebrow="客户编号 CR-20250916-001" title="客户资料" description="上传并核对企业客户的基础信息与信贷分析材料。" />
     <Card className="mb-6 p-5 lg:p-6"><div className="grid gap-5 sm:grid-cols-3"><Info label="客户名称" value="XX科技有限公司" icon={<Building2 />} /><Info label="企业类型" value="有限责任公司" icon={<BriefcaseBusiness />} /><Info label="所属行业" value="软件服务" icon={<FileChartColumn />} /></div></Card>
@@ -192,32 +224,257 @@ function CustomerProfile({ files, setFiles, onNext }: { files: typeof initialFil
       <Card><div className="flex items-center justify-between border-b border-border p-5"><div><h2 className="font-semibold text-navy">已上传资料</h2><p className="mt-1 text-xs text-muted-foreground">共 4 份，全部解析完成</p></div><StatusTag tone="low"><Check className="size-3" />资料齐全</StatusTag></div><div className="divide-y divide-border">{files.map((file)=><div key={file.name} className="flex items-center gap-3 p-4"><div className={cn("grid size-10 shrink-0 place-items-center rounded-md",file.type==="excel"?"bg-risk-low-soft text-risk-low":"bg-risk-high-soft text-risk-high")}>{file.type==="excel"?<FileSpreadsheet className="size-5"/>:<FileText className="size-5"/>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="mt-1 text-xs text-muted-foreground">{file.size} · 已完成内容识别</p></div><StatusTag tone="low">已解析</StatusTag></div>)}</div>
         <div className="border-t border-border bg-primary-subtle/50 px-5 py-3"><p className="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 text-risk-low" />资料完整度较高，已覆盖财务、经营、流水及征信信息</p></div>
       </Card>
-    </div><div className="mt-6 flex justify-end"><Button size="lg" onClick={onNext}>开始AI分析<ArrowRight className="size-4" /></Button></div></>;
+    </div><div className="mt-6">
+  {financialData && (
+    <Card className="mb-4 p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold text-navy">Excel 已读取数据</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            系统已识别 Excel 中最近两期财务数据，可用于同比分析
+          </p>
+        </div>
+        <StatusTag tone="low">
+          <CheckCircle2 className="size-3" />
+          两期已读取
+        </StatusTag>
+      </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        {financialData.periods.map((period) => (
+          <div key={period.period} className="rounded-lg border border-border bg-muted/30 p-4">
+            <p className="text-sm font-semibold text-navy">{period.period}年</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">营业收入</p>
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  {period.data.revenue !== undefined
+                    ? `${period.data.revenue.toLocaleString()} 万元`
+                    : "未读取"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">净利润</p>
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  {period.data.netProfit !== undefined
+                    ? `${period.data.netProfit.toLocaleString()} 万元`
+                    : "未读取"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">总资产</p>
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  {period.data.totalAssets !== undefined
+                    ? `${period.data.totalAssets.toLocaleString()} 万元`
+                    : "未读取"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">总负债</p>
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  {period.data.totalLiabilities !== undefined
+                    ? `${period.data.totalLiabilities.toLocaleString()} 万元`
+                    : "未读取"}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )}
+
+  <div className="flex justify-end">
+    <Button size="lg" onClick={onNext}>
+      开始AI分析
+      <ArrowRight className="size-4" />
+    </Button>
+  </div>
+</div></>;
 }
 
 function Info({ label, value, icon }: { label: string; value: string; icon: ReactNode }) { return <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md bg-muted text-primary [&>svg]:size-5">{icon}</div><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-sm font-semibold text-navy">{value}</p></div></div>; }
 
-function CustomerPortrait({ onNext }: { onNext: () => void }) {
-  const metrics = [{ label:"营业收入", value:"2,580", unit:"万元", change:"+12.5%", up:true },{ label:"净利润", value:"186", unit:"万元", change:"-9.3%", up:false },{ label:"资产负债率", value:"68.2", unit:"%", change:"+4.8个百分点", up:false },{ label:"经营活动现金流", value:"-125", unit:"万元", change:"由正转负", up:false }];
-  return <><PageHeader eyebrow="AI 客户画像" title="XX科技有限公司" description="软件服务业 · 成立8年 · 注册资本1000万元" action={<div className="flex gap-2"><StatusTag tone="low"><CheckCircle2 className="size-3" />AI分析已完成</StatusTag><StatusTag tone="blue"><FileText className="size-3" />数据来源 4份资料</StatusTag></div>} />
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((m)=><Card key={m.label} className="p-5"><p className="text-sm text-muted-foreground">{m.label}</p><div className="mt-4 flex items-baseline gap-1"><span className="text-3xl font-bold text-navy">{m.value}</span><span className="text-sm text-muted-foreground">{m.unit}</span></div><div className={cn("mt-3 flex items-center gap-1 text-xs font-medium",m.up?"text-risk-low":"text-risk-high")}>{m.up?<TrendingUp className="size-3.5"/>:<TrendingDown className="size-3.5"/>}{m.label === "经营活动现金流" ? m.change : `同比 ${m.change}`}</div></Card>)}</div>
-    <Card className="mt-6 overflow-hidden"><div className="flex items-center gap-3 border-b border-border bg-primary-subtle px-5 py-4"><div className="grid size-9 place-items-center rounded-md bg-primary-soft text-primary"><Sparkles className="size-[18px]" /></div><div><h2 className="font-semibold text-navy">AI初步洞察</h2><p className="text-xs text-muted-foreground">基于客户资料与财务数据综合分析</p></div></div><div className="p-6"><p className="text-base font-semibold text-navy">收入保持增长，但盈利质量及现金流值得进一步关注。</p><p className="mt-3 max-w-4xl text-sm leading-7 text-muted-foreground">2025年营业收入同比增长12.5%，但净利润同比下降9.3%，经营活动现金流由正转负至-125万元。收入增长与盈利、现金流表现存在一定背离，建议进一步核查应收账款变化、主要客户回款情况及经营现金流形成原因。</p><div className="mt-5 flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><FileText className="size-4 text-primary" />本结论基于已解析的4份资料生成，相关数据可追溯至原始资料。</div></div></Card>
+function CustomerPortrait({ financialData, onNext }: { financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null; onNext: () => void }) {
+  const previous = financialData?.periods[0].data;
+  const current = financialData?.periods[1].data;
+
+  const changes = previous && current
+    ? calculateMetricChanges(previous, current)
+    : {};
+
+  const currentMetrics = current
+    ? calculateFinancialMetrics(current)
+    : {};
+
+  const formatYoY = (value: number | undefined) => {
+    if (value === undefined) return "同比 —";
+    return `同比 ${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+  };
+
+  const metrics = [
+    {
+      label: "营业收入",
+      value: current?.revenue !== undefined
+        ? current.revenue.toLocaleString()
+        : "—",
+      unit: "万元",
+      change: formatYoY(changes.revenueYoY),
+      up: changes.revenueYoY !== undefined
+        ? changes.revenueYoY >= 0
+        : true,
+    },
+    {
+      label: "净利润",
+      value: current?.netProfit !== undefined
+        ? current.netProfit.toLocaleString()
+        : "—",
+      unit: "万元",
+      change: formatYoY(changes.netProfitYoY),
+      up: changes.netProfitYoY !== undefined
+        ? changes.netProfitYoY >= 0
+        : current?.netProfit !== undefined && current.netProfit >= 0,
+    },
+    {
+      label: "资产负债率",
+      value: currentMetrics.debtRatio !== undefined
+        ? currentMetrics.debtRatio.toFixed(1)
+        : "—",
+      unit: "%",
+      change:
+        changes.debtRatioChange !== undefined
+          ? `较上期 ${changes.debtRatioChange >= 0 ? "+" : ""}${changes.debtRatioChange.toFixed(1)}个百分点`
+          : "较上期 —",
+      up:
+        changes.debtRatioChange !== undefined
+          ? changes.debtRatioChange <= 0
+          : true,
+    },
+    {
+      label: "经营活动现金流",
+      value: current?.operatingCashFlow !== undefined
+        ? current.operatingCashFlow.toLocaleString()
+        : "—",
+      unit: "万元",
+      change:
+        previous?.operatingCashFlow !== undefined &&
+        current?.operatingCashFlow !== undefined &&
+        previous.operatingCashFlow >= 0 &&
+        current.operatingCashFlow < 0
+          ? "由正转负"
+          : formatYoY(changes.operatingCashFlowYoY),
+      up:
+        current?.operatingCashFlow !== undefined
+          ? current.operatingCashFlow >= 0
+          : true,
+    },
+  ];
+
+  const currentPeriod = financialData?.periods[1]?.period
+    ? `${financialData.periods[1].period}年`
+    : "当前期";
+
+  const previousPeriod = financialData?.periods[0]?.period
+    ? `${financialData.periods[0].period}年`
+    : "上期";
+
+  const revenueYoYText =
+    changes.revenueYoY !== undefined
+      ? `营业收入同比${changes.revenueYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.revenueYoY).toFixed(1)}%`
+      : "营业收入同比变化暂不可计算";
+
+  const netProfitYoYText =
+    changes.netProfitYoY !== undefined
+      ? `净利润同比${changes.netProfitYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.netProfitYoY).toFixed(1)}%`
+      : "净利润同比变化暂不可计算";
+
+  const cashFlowText =
+    previous?.operatingCashFlow !== undefined &&
+    current?.operatingCashFlow !== undefined &&
+    previous.operatingCashFlow >= 0 &&
+    current.operatingCashFlow < 0
+      ? `经营活动现金流由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负`
+      : current?.operatingCashFlow !== undefined
+        ? `经营活动现金流为${current.operatingCashFlow.toLocaleString()}万元`
+        : "经营活动现金流数据暂不可用";
+
+  const insightTitle =
+    changes.revenueYoY !== undefined &&
+    changes.revenueYoY > 0 &&
+    changes.netProfitYoY !== undefined &&
+    changes.netProfitYoY < 0
+      ? "收入保持增长，但盈利质量及现金流值得进一步关注。"
+      : "企业财务指标已完成初步分析，建议结合其他尽调资料进一步判断。";
+
+  const insightBody =
+    `${currentPeriod}${revenueYoYText}，${netProfitYoYText}，${cashFlowText}。` +
+    "收入增长与盈利、现金流表现存在一定背离，建议进一步核查应收账款变化、主要客户回款情况及经营现金流形成原因。";
+
+  return <><PageHeader eyebrow="AI 客户画像" title="XX科技有限公司" description="软件服务业 · 成立8年 · 注册资本1000万元" action={<div className="flex gap-2"><StatusTag tone="low"><CheckCircle2 className="size-3" />AI分析已完成</StatusTag><StatusTag tone="blue"><FileText className="size-3" />数据来源 1份 Excel</StatusTag></div>} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((m)=><Card key={m.label} className="p-5"><p className="text-sm text-muted-foreground">{m.label}</p><div className="mt-4 flex items-baseline gap-1"><span className="text-3xl font-bold text-navy">{m.value}</span><span className="text-sm text-muted-foreground">{m.unit}</span></div><div className={cn("mt-3 flex items-center gap-1 text-xs font-medium",m.up?"text-risk-low":"text-risk-high")}>{m.up?<TrendingUp className="size-3.5"/>:<TrendingDown className="size-3.5"/>}{m.change}</div></Card>)}</div>
+    <Card className="mt-6 overflow-hidden"><div className="flex items-center gap-3 border-b border-border bg-primary-subtle px-5 py-4"><div className="grid size-9 place-items-center rounded-md bg-primary-soft text-primary"><Sparkles className="size-[18px]" /></div><div><h2 className="font-semibold text-navy">AI初步洞察</h2><p className="text-xs text-muted-foreground">基于客户资料与财务数据综合分析</p></div></div><div className="p-6"><p className="text-base font-semibold text-navy">{insightTitle}</p><p className="mt-3 max-w-4xl text-sm leading-7 text-muted-foreground">{insightBody}</p><div className="mt-5 flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><FileText className="size-4 text-primary" />本结论基于已解析的{financialData?.periods.length ?? 0}期财务数据生成，相关数据可追溯至上传的 Excel。</div></div></Card>
     <div className="mt-6 flex justify-end"><Button size="lg" onClick={onNext}>查看风险分析<ArrowRight className="size-4" /></Button></div></>;
 }
 
-function RiskAnalysis({ onEvidence }: { onEvidence: () => void }) {
-  const risks = [
-    { title: "经营现金流风险", tone: "high" as const, label: "高风险", text: "2025年经营活动现金流净额为-125万元，由2024年的+80万元转为负值，现金回款能力出现明显变化，建议进一步核查主要客户回款及应收账款变化。", source: "2025年度财务报告.pdf · 第12页" },
-    { title: "盈利能力下降", tone: "medium" as const, label: "中风险", text: "2025年净利润同比下降9.3%，同期营业收入同比增长12.5%，收入增长与利润表现存在一定背离，建议进一步核查成本费用及利润变动原因。", source: "2025年度财务报告.pdf · 第8页" },
-    { title: "资产负债率上升", tone: "medium" as const, label: "中风险", text: "资产负债率由63.4%上升至68.2%，整体负债水平有所增加，建议结合负债结构及短期偿债能力进一步判断。", source: "2025年度财务报告.pdf · 第6页" },
-    { title: "主营业务稳定", tone: "low" as const, label: "低风险", text: "核心软件服务业务收入占比较稳定，主要客户结构未发生重大变化，当前未发现明显的主营业务集中度异常信号。", source: "企业经营情况说明.pdf · 第5页" },
-  ];
+function RiskAnalysis({
+  financialData,
+  onEvidence,
+}: {
+  financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null;
+  onEvidence: () => void;
+}) {
+  const previous = financialData?.periods[0].data ?? {};
+  const current = financialData?.periods[1].data ?? {};
+
+  const risks = financialData
+    ? analyzeFinancialRisk(previous, current).map((risk) => ({
+        ...risk,
+        label:
+          risk.level === "high"
+            ? "高风险"
+            : risk.level === "medium"
+              ? "中风险"
+              : "低风险",
+        tone: risk.level,
+        source: "已上传两期财务数据 · 自动计算",
+        text: risk.description,
+      }))
+    : [];
+
+  const highCount = risks.filter((risk) => risk.tone === "high").length;
+  const mediumCount = risks.filter((risk) => risk.tone === "medium").length;
+  const lowCount = risks.filter((risk) => risk.tone === "low").length;
+
+  const overallRisk =
+    highCount > 0 ? "high" : mediumCount > 0 ? "medium" : "low";
+
+  const overallRiskLabel =
+    overallRisk === "high"
+      ? "高风险"
+      : overallRisk === "medium"
+        ? "中风险"
+        : "低风险";
+
+  const overallRiskClass =
+    overallRisk === "high"
+      ? "text-risk-high"
+      : overallRisk === "medium"
+        ? "text-risk-medium"
+        : "text-risk-low";
+
+  const overallRiskDotClass =
+    overallRisk === "high"
+      ? "bg-risk-high"
+      : overallRisk === "medium"
+        ? "bg-risk-medium"
+        : "bg-risk-low";
+
   return <><PageHeader eyebrow="XX科技有限公司" title="风险分析" description="基于已上传资料识别关键风险信号，并提供可追溯的分析依据。" />
     <Card className="mb-6 p-5 lg:p-6">
       <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr_.9fr] lg:items-center">
-        <div><p className="text-sm text-muted-foreground">综合风险等级</p><div className="mt-2 flex items-center gap-3"><span className="size-3 rounded-full bg-risk-medium" /><span className="text-3xl font-bold text-risk-medium">中风险</span></div></div>
-        <div className="grid grid-cols-3 gap-3 border-y border-border py-5 lg:border-x lg:border-y-0 lg:px-6 lg:py-0">{[["高风险","1项","high"],["中风险","2项","medium"],["低风险","1项","low"]].map(([label,value,tone])=><div key={label} className="text-center"><p className={cn("text-xl font-bold",tone==="high"?"text-risk-high":tone==="medium"?"text-risk-medium":"text-risk-low")}>{value}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div>
-        <div><p className="text-sm text-muted-foreground">分析依据覆盖</p><p className="mt-2 text-2xl font-bold text-navy">4/4 份资料</p><p className="mt-2 text-xs leading-5 text-muted-foreground">已关联财务、经营、流水及征信资料</p></div>
+        <div><p className="text-sm text-muted-foreground">综合风险等级</p><div className="mt-2 flex items-center gap-3"><span className={cn("size-3 rounded-full", overallRiskDotClass)} /><span className={cn("text-3xl font-bold", overallRiskClass)}>{overallRiskLabel}</span></div></div>
+        <div className="grid grid-cols-3 gap-3 border-y border-border py-5 lg:border-x lg:border-y-0 lg:px-6 lg:py-0">{[["高风险", highCount, "high"], ["中风险", mediumCount, "medium"], ["低风险", lowCount, "low"]].map(([label, value, tone]) => <div key={label} className="text-center"><p className={cn("text-xl font-bold", tone === "high" ? "text-risk-high" : tone === "medium" ? "text-risk-medium" : "text-risk-low")}>{value}项</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>)}</div>
+        <div><p className="text-sm text-muted-foreground">分析依据覆盖</p><p className="mt-2 text-2xl font-bold text-navy">1/1 份资料</p><p className="mt-2 text-xs leading-5 text-muted-foreground">已关联上传 Excel 中的两期财务数据</p></div>
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">{["资料解析","风险识别","依据核验","人工判断"].map((step,index)=><div key={step} className="flex items-center gap-2"><span className={cn("grid size-5 place-items-center rounded-full text-[10px] font-semibold",index<3?"bg-primary-soft text-primary":"bg-muted text-muted-foreground")}>{index+1}</span><span>{step}</span>{index<3&&<ArrowRight className="size-3.5 text-border" />}</div>)}</div>
     </Card>
@@ -254,10 +511,10 @@ function Report({ saved, onSave }: { saved: boolean; onSave: () => void }) {
   const regenerate=()=>{setEditing(false);setRegenerating(true);setConfirmed(false);window.setTimeout(()=>{setReportText(defaultReportText);setHasEdited(false);setRegenerating(false);},900);};
   const confirmAndExport=()=>{setConfirmed(true);const text=`贷前风险分析报告\n客户：XX科技有限公司\n\n${reportText}\n\n本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。`;const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="XX科技有限公司-贷前风险分析报告.txt";a.click();URL.revokeObjectURL(url);};
   return <><PageHeader eyebrow="XX科技有限公司" title="AI分析报告" description="AI根据已解析资料生成贷前风险分析初稿，客户经理审核后可确认并导出。" action={<div className="flex flex-wrap gap-2"><StatusTag tone={confirmed?"low":"medium"}>{confirmed?<><Check className="size-3"/>报告已确认</>:"待确认"}</StatusTag><StatusTag tone="blue"><Bot className="size-3"/>AI初稿 · 待人工审核</StatusTag></div>} />
-    {confirmed&&<div className="mx-auto mb-6 flex max-w-4xl items-start gap-3 rounded-lg border border-risk-low/25 bg-risk-low-soft p-5"><CheckCircle2 className="mt-0.5 size-5 shrink-0 text-risk-low"/><div><h2 className="font-semibold text-navy">贷前风险分析报告已生成</h2><p className="mt-1 text-sm text-muted-foreground">本报告基于4份资料生成，最终内容已由客户经理确认。</p></div></div>}
+    {confirmed&&<div className="mx-auto mb-6 flex max-w-4xl items-start gap-3 rounded-lg border border-risk-low/25 bg-risk-low-soft p-5"><CheckCircle2 className="mt-0.5 size-5 shrink-0 text-risk-low"/><div><h2 className="font-semibold text-navy">贷前风险分析报告已生成</h2><p className="mt-1 text-sm text-muted-foreground">本报告基于1份 Excel 中的两期财务数据生成，最终内容已由客户经理确认。</p></div></div>}
     <Card className="mx-auto max-w-4xl overflow-hidden"><div className="border-b-4 border-primary px-6 py-8 text-center lg:px-12"><div className="text-xs font-semibold text-primary">CREDIT RISK ASSESSMENT</div><h2 className="mt-3 text-2xl font-bold text-navy">贷前风险分析报告</h2><p className="mt-3 text-sm text-muted-foreground">客户：XX科技有限公司</p></div>
       {regenerating?<div className="flex min-h-96 flex-col items-center justify-center px-6 py-12 text-center"><RefreshCw className="size-7 animate-spin text-primary"/><p className="mt-4 font-medium text-navy">正在重新生成分析报告……</p></div>:editing?<div className="px-6 py-8 lg:px-12"><label className="mb-3 block text-sm font-semibold text-navy" htmlFor="report-editor">报告正文</label><textarea id="report-editor" value={reportText} onChange={(event)=>setReportText(event.target.value)} className="min-h-[620px] w-full resize-y rounded-md border border-input bg-background p-4 text-sm leading-7 text-report-body outline-none focus:ring-2 focus:ring-ring"/><div className="mt-4 flex justify-end"><Button onClick={()=>{setHasEdited(true);setEditing(false)}}><Check className="size-4"/>完成编辑并保存</Button></div></div>:hasEdited?<article className="whitespace-pre-wrap px-6 py-8 text-sm leading-7 text-report-body lg:px-12">{reportText}</article>:<ReportContent />}
-      <div className="grid gap-2 border-t border-border bg-primary-subtle/40 px-6 py-4 text-xs text-muted-foreground sm:grid-cols-3 lg:px-12">{["已引用4份资料","已关联4项风险","风险依据可追溯"].map(item=><span key={item} className="flex items-center gap-1.5"><Check className="size-3.5 text-risk-low"/>{item}</span>)}</div>
+      <div className="grid gap-2 border-t border-border bg-primary-subtle/40 px-6 py-4 text-xs text-muted-foreground sm:grid-cols-3 lg:px-12">{["已引用1份资料","风险项已自动识别","风险依据可追溯"].map(item=><span key={item} className="flex items-center gap-1.5"><Check className="size-3.5 text-risk-low"/>{item}</span>)}</div>
       <div className="border-t border-border bg-muted/40 px-6 py-4 text-center text-xs leading-6 text-muted-foreground">本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。最终判断应由相关业务人员依据尽调资料及业务制度完成。</div>
     </Card>
     {saved&&<p className="mt-4 text-center text-sm text-risk-low"><CheckCircle2 className="mr-1 inline size-4"/>报告草稿已保存</p>}
