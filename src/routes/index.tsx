@@ -591,6 +591,13 @@ function ReportContent({ financialData }: { financialData: Awaited<ReturnType<ty
   const current = financialData.periods[1].data;
   const changes = calculateMetricChanges(previous, current);
   const currentMetrics = calculateFinancialMetrics(current);
+  const netProfitRisk = current.netProfit !== undefined && current.netProfit < 0
+    ? { tone: "high" as const, title: "盈利能力风险" }
+    : changes.netProfitYoY !== undefined && changes.netProfitYoY < -10
+      ? { tone: "medium" as const, title: "盈利能力下降" }
+      : current.netProfit !== undefined && current.netProfit >= 0
+        ? { tone: "low" as const, title: "盈利能力基本稳定" }
+        : { tone: "low" as const, title: "盈利能力数据暂不可判断" };
 
   const revenueText = current.revenue !== undefined ? `${current.revenue.toLocaleString()}万元` : "暂不可用";
   const revenueYoYText = changes.revenueYoY !== undefined ? `${changes.revenueYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.revenueYoY).toFixed(1)}%` : "暂不可计算";
@@ -607,7 +614,7 @@ function ReportContent({ financialData }: { financialData: Awaited<ReturnType<ty
     <ReportSection title="一、客户基本情况"><p>XX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。</p></ReportSection>
     <ReportSection title="二、经营情况"><p>{financialData.periods[1].period}年营业收入{revenueText}，同比{revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。</p></ReportSection>
     <ReportSection title="三、财务情况"><p>{financialData.periods[1].period}年净利润{netProfitText}，同比{netProfitYoYText}；资产负债率{debtRatioText}，较上期{debtRatioChangeText}；经营活动现金流净额{operatingCashFlowText}，{previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? `由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负` : `较上期${operatingCashFlowChangeText}`}。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value={`${netProfitText} · ${netProfitYoYText}`}/><MiniMetric label="资产负债率" value={`${debtRatioText} · ${debtRatioChangeText}`}/><MiniMetric label="经营现金流" value={`${operatingCashFlowText} · ${previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? "由正转负" : operatingCashFlowChangeText}`}/></div></ReportSection>
-    <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "high" : "medium"} number="1" title={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "经营现金流风险" : "经营现金流情况"}>建议核查主要客户回款、应收账款变化及经营现金流形成原因。</ReportRisk><ReportRisk tone={current.netProfit !== undefined && current.netProfit < 0 ? "medium" : "low"} number="2" title={current.netProfit !== undefined && current.netProfit < 0 ? "盈利能力下降" : "盈利能力保持稳定"}>建议核查成本费用及利润变动原因。</ReportRisk><ReportRisk tone={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "medium" : "low"} number="3" title={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "资产负债率上升" : "资产负债率合理"}>建议结合负债结构及短期偿债能力进一步判断。</ReportRisk><ReportRisk tone="low" number="4" title="主营业务稳定">当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。</ReportRisk></div></ReportSection>
+    <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "high" : "medium"} number="1" title={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "经营现金流风险" : "经营现金流情况"}>建议核查主要客户回款、应收账款变化及经营现金流形成原因。</ReportRisk><ReportRisk tone={netProfitRisk.tone} number="2" title={netProfitRisk.title}>建议核查成本费用及利润变动原因。</ReportRisk><ReportRisk tone={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "medium" : "low"} number="3" title={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "资产负债率上升" : "资产负债率合理"}>建议结合负债结构及短期偿债能力进一步判断。</ReportRisk><ReportRisk tone="low" number="4" title="主营业务稳定">当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。</ReportRisk></div></ReportSection>
     <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>核查客户回款与应收账款。</li><li>了解净利润下降原因。</li><li>核查负债结构与短期偿债能力。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
   </article>;
 }
