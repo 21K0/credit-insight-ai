@@ -60,6 +60,12 @@ export const Route = createFileRoute("/")({
 
 type View = "dashboard" | "profile" | "portrait" | "risk" | "evidence" | "report" | "settings";
 type RiskTone = "high" | "medium" | "low";
+type FinancialDataResult = Awaited<ReturnType<typeof parseFinancialExcel>>;
+type RiskAnalysisResult = {
+  items: ReturnType<typeof analyzeFinancialRisk>;
+  overallLevel: RiskTone;
+  counts: Record<RiskTone, number>;
+};
 
 const navigation = [
   { id: "dashboard" as const, label: "工作台", icon: LayoutDashboard },
@@ -70,12 +76,45 @@ const navigation = [
   { id: "settings" as const, label: "设置", icon: Settings },
 ];
 
-const initialFiles = [
-  { name: "2025年度财务报告.pdf", size: "3.8 MB", type: "pdf" },
-  { name: "企业经营情况说明.pdf", size: "1.2 MB", type: "pdf" },
-  { name: "近12个月银行流水.xlsx", size: "2.6 MB", type: "excel" },
-  { name: "企业征信摘要.pdf", size: "1.5 MB", type: "pdf" },
+type UploadedFile = {
+  name: string;
+  size: string;
+  type: "pdf" | "excel";
+  status: "uploaded" | "financial-read";
+};
+
+const initialFiles: UploadedFile[] = [
+  { name: "2025年度财务报告.pdf", size: "3.8 MB", type: "pdf", status: "uploaded" },
+  { name: "企业经营情况说明.pdf", size: "1.2 MB", type: "pdf", status: "uploaded" },
+  { name: "近12个月银行流水.xlsx", size: "2.6 MB", type: "excel", status: "uploaded" },
+  { name: "企业征信摘要.pdf", size: "1.5 MB", type: "pdf", status: "uploaded" },
 ];
+
+function getRiskAnalysis(financialData: FinancialDataResult | null): RiskAnalysisResult | null {
+  if (!financialData || financialData.periods.length < 2) {
+    return null;
+  }
+
+  const items = analyzeFinancialRisk(
+    financialData.periods[0].data,
+    financialData.periods[1].data,
+  );
+  const counts = {
+    high: items.filter((risk) => risk.level === "high").length,
+    medium: items.filter((risk) => risk.level === "medium").length,
+    low: items.filter((risk) => risk.level === "low").length,
+  };
+
+  return {
+    items,
+    counts,
+    overallLevel: counts.high > 0 ? "high" : counts.medium > 0 ? "medium" : "low",
+  };
+}
+
+function getRiskLabel(level: RiskTone) {
+  return level === "high" ? "高风险" : level === "medium" ? "中风险" : "低风险";
+}
 
 function Index() {
   const [view, setView] = useState<View>("profile");
@@ -84,6 +123,7 @@ function Index() {
   const [sourceOpen, setSourceOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [files, setFiles] = useState(initialFiles);
+  const riskAnalysis = getRiskAnalysis(financialData);
 
   const changeView = (next: View) => {
     setView(next);
@@ -150,17 +190,17 @@ function Index() {
           <div className="mb-6 flex items-center gap-2 text-xs text-muted-foreground">
             <span>CreditRiskAI</span><ChevronRight className="size-3.5" /><span className="text-foreground">{currentTitle}</span>
           </div>
-          {view === "dashboard" && <Dashboard onOpen={() => changeView("profile")} />}
+          {view === "dashboard" && <Dashboard onOpen={() => changeView("profile")} riskAnalysis={riskAnalysis} />}
           {view === "profile" && <CustomerProfile files={files} setFiles={setFiles} financialData={financialData} setFinancialData={setFinancialData} onNext={() => changeView("portrait")} />}
           {view === "portrait" && <CustomerPortrait financialData={financialData} onNext={() => changeView("risk")} />}
-          {view === "risk" && <RiskAnalysis financialData={financialData} onEvidence={() => changeView("evidence")} />}
-          {view === "evidence" && <Evidence onBack={() => changeView("risk")} onSource={() => setSourceOpen(true)} onReport={() => changeView("report")} />}
-          {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} financialData={financialData} />}
+          {view === "risk" && <RiskAnalysis riskAnalysis={riskAnalysis} onEvidence={() => changeView("evidence")} />}
+          {view === "evidence" && <Evidence financialData={financialData} onBack={() => changeView("risk")} onSource={() => setSourceOpen(true)} onReport={() => changeView("report")} />}
+          {view === "report" && <Report saved={saved} onSave={() => setSaved(true)} financialData={financialData} riskAnalysis={riskAnalysis} />}
           {view === "settings" && <SettingsPage />}
         </div>
       </main>
 
-      {sourceOpen && <SourceModal onClose={() => setSourceOpen(false)} />}
+      {sourceOpen && <SourceModal financialData={financialData} onClose={() => setSourceOpen(false)} />}
     </div>
   );
 }
@@ -178,29 +218,44 @@ function StatusTag({ tone, children }: { tone: RiskTone | "blue"; children: Reac
   return <span className={cn("inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium", tones[tone])}>{children}</span>;
 }
 
-function Dashboard({ onOpen }: { onOpen: () => void }) {
+function Dashboard({ onOpen, riskAnalysis }: { onOpen: () => void; riskAnalysis: RiskAnalysisResult | null }) {
+  const primaryRisk = riskAnalysis?.overallLevel === "high"
+    ? "高风险"
+    : riskAnalysis?.overallLevel === "medium"
+      ? "中风险"
+      : riskAnalysis?.overallLevel === "low"
+        ? "低风险"
+        : "待评估";
+
   return <><PageHeader title="工作台" description="欢迎回来，张经理。这里是您当前的客户与分析任务概览。" action={<Button onClick={onOpen}><Plus className="size-4" />发起客户分析</Button>} />
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {[{ label: "待分析客户", value: "6", note: "较昨日 +2", icon: UsersRound }, { label: "本月已完成", value: "24", note: "完成率 92%", icon: CheckCircle2 }, { label: "待跟进风险", value: "8", note: "高风险 2 项", icon: AlertTriangle }, { label: "已生成报告", value: "21", note: "本月累计", icon: FileChartColumn }].map((item) => <Card key={item.label} className="p-5"><div className="mb-5 flex items-center justify-between"><span className="text-sm text-muted-foreground">{item.label}</span><item.icon className="size-5 text-primary" /></div><div className="text-3xl font-bold text-navy">{item.value}</div><div className="mt-2 text-xs text-muted-foreground">{item.note}</div></Card>)}
     </div>
     <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-      <Card><div className="border-b border-border p-5"><h2 className="font-semibold text-navy">近期客户</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr><th className="px-5 py-3 font-medium">客户名称</th><th className="px-5 py-3 font-medium">行业</th><th className="px-5 py-3 font-medium">分析状态</th><th className="px-5 py-3 font-medium">风险等级</th><th className="px-5 py-3 font-medium">更新时间</th></tr></thead><tbody>{[["XX科技有限公司","软件服务","分析完成","中风险","今天 09:42"],["华东设备制造有限公司","装备制造","资料解析中","待评估","昨天 16:25"],["恒瑞商贸有限公司","批发零售","报告待确认","低风险","09月14日"]].map((row, index)=><tr className="border-t border-border first:border-0" key={row[0]}>{row.map((cell,i)=><td key={cell} className="px-5 py-4">{i===0?<button onClick={index===0?onOpen:undefined} className="font-medium text-primary hover:underline">{cell}</button>:i===3?<StatusTag tone={cell==="中风险"?"medium":cell==="低风险"?"low":"blue"}>{cell}</StatusTag>:cell}</td>)}</tr>)}</tbody></table></div></Card>
+      <Card><div className="border-b border-border p-5"><h2 className="font-semibold text-navy">近期客户</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr><th className="px-5 py-3 font-medium">客户名称</th><th className="px-5 py-3 font-medium">行业</th><th className="px-5 py-3 font-medium">分析状态</th><th className="px-5 py-3 font-medium">风险等级</th><th className="px-5 py-3 font-medium">更新时间</th></tr></thead><tbody>{[["XX科技有限公司","软件服务","分析完成",primaryRisk,"今天 09:42"],["华东设备制造有限公司","装备制造","资料解析中","待评估","昨天 16:25"],["恒瑞商贸有限公司","批发零售","报告待确认","低风险","09月14日"]].map((row, index)=><tr className="border-t border-border first:border-0" key={row[0]}>{row.map((cell,i)=><td key={cell} className="px-5 py-4">{i===0?<button onClick={index===0?onOpen:undefined} className="font-medium text-primary hover:underline">{cell}</button>:i===3?<StatusTag tone={cell==="高风险"?"high":cell==="中风险"?"medium":cell==="低风险"?"low":"blue"}>{cell}</StatusTag>:cell}</td>)}</tr>)}</tbody></table></div></Card>
       <Card className="p-5"><h2 className="font-semibold text-navy">待办事项</h2><div className="mt-4 space-y-4">{["确认 XX科技有限公司分析报告","补充华东设备制造公司流水","复核恒瑞商贸授信建议"].map((task,i)=><div key={task} className="flex gap-3"><span className={cn("mt-1 size-2 rounded-full",i===0?"bg-risk-high":i===1?"bg-risk-medium":"bg-primary")} /><div><p className="text-sm font-medium">{task}</p><p className="mt-1 text-xs text-muted-foreground">{i===0?"今天到期":"本周内"}</p></div></div>)}</div></Card>
     </div></>;
 }
 
 function CustomerProfile({ files, setFiles, financialData, setFinancialData, onNext }: { files: typeof initialFiles; setFiles: (files: typeof initialFiles) => void; financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null; setFinancialData: (data: Awaited<ReturnType<typeof parseFinancialExcel>>) => void; onNext: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const formatFileSize = (size: number) =>
+    size < 1024 * 1024
+      ? `${(size / 1024).toFixed(1)} KB`
+      : `${(size / 1024 / 1024).toFixed(1)} MB`;
+
   const addFiles = async (list: FileList | null) => {
   if (!list) return;
 
   const selectedFiles = Array.from(list);
+  const parsedExcelFiles = new Set<string>();
 
   for (const file of selectedFiles) {
-    if (file.name.toLowerCase().endsWith(".xlsx")) {
+    if (/\.(xlsx|xls)$/i.test(file.name)) {
       try {
         const data = await parseFinancialExcel(file);
         setFinancialData(data);
+        parsedExcelFiles.add(file.name);
       } catch (error) {
         console.error("Excel解析失败:", error);
       }
@@ -211,8 +266,9 @@ function CustomerProfile({ files, setFiles, financialData, setFinancialData, onN
     ...files,
     ...selectedFiles.map((file) => ({
       name: file.name,
-      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-      type: file.name.toLowerCase().endsWith(".xlsx") ? "excel" : "pdf",
+      size: formatFileSize(file.size),
+      type: /\.(xlsx|xls)$/i.test(file.name) ? "excel" : "pdf",
+      status: parsedExcelFiles.has(file.name) ? "financial-read" : "uploaded",
     })),
   ]);
 };
@@ -221,8 +277,8 @@ function CustomerProfile({ files, setFiles, financialData, setFinancialData, onN
     <Card className="mb-6 p-5 lg:p-6"><div className="grid gap-5 sm:grid-cols-3"><Info label="客户名称" value="XX科技有限公司" icon={<Building2 />} /><Info label="企业类型" value="有限责任公司" icon={<BriefcaseBusiness />} /><Info label="所属行业" value="软件服务" icon={<FileChartColumn />} /></div></Card>
     <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
       <Card className="p-5 lg:p-6"><div className="mb-4"><h2 className="font-semibold text-navy">上传客户资料</h2><p className="mt-1 text-xs text-muted-foreground">文件将自动进行安全解析和信息提取</p></div><div onDragOver={(e)=>e.preventDefault()} onDrop={onDrop} onClick={()=>inputRef.current?.click()} className="group flex min-h-60 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-primary/35 bg-primary-subtle p-6 text-center transition-colors hover:border-primary hover:bg-primary-soft/50"><input ref={inputRef} className="hidden" type="file" multiple accept=".pdf,.xlsx,.xls,.doc,.docx" onChange={(e: ChangeEvent<HTMLInputElement>)=>addFiles(e.target.files)} /><div className="mb-4 grid size-12 place-items-center rounded-full bg-primary-soft text-primary"><UploadCloud className="size-6" /></div><div className="font-medium text-navy">拖拽文件到此处上传</div><div className="mt-2 text-sm text-muted-foreground">或点击选择本地文件</div><div className="mt-5 rounded bg-background px-3 py-1.5 text-xs text-muted-foreground">支持 PDF / Excel / Word，单个文件不超过 20MB</div></div></Card>
-      <Card><div className="flex items-center justify-between border-b border-border p-5"><div><h2 className="font-semibold text-navy">已上传资料</h2><p className="mt-1 text-xs text-muted-foreground">共 4 份，全部解析完成</p></div><StatusTag tone="low"><Check className="size-3" />资料齐全</StatusTag></div><div className="divide-y divide-border">{files.map((file)=><div key={file.name} className="flex items-center gap-3 p-4"><div className={cn("grid size-10 shrink-0 place-items-center rounded-md",file.type==="excel"?"bg-risk-low-soft text-risk-low":"bg-risk-high-soft text-risk-high")}>{file.type==="excel"?<FileSpreadsheet className="size-5"/>:<FileText className="size-5"/>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="mt-1 text-xs text-muted-foreground">{file.size} · 已完成内容识别</p></div><StatusTag tone="low">已解析</StatusTag></div>)}</div>
-        <div className="border-t border-border bg-primary-subtle/50 px-5 py-3"><p className="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 text-risk-low" />资料完整度较高，已覆盖财务、经营、流水及征信信息</p></div>
+      <Card><div className="flex items-center justify-between border-b border-border p-5"><div><h2 className="font-semibold text-navy">已上传资料</h2><p className="mt-1 text-xs text-muted-foreground">共 {files.length} 份资料</p></div><StatusTag tone="low"><Check className="size-3" />资料已识别</StatusTag></div><div className="divide-y divide-border">{files.map((file)=><div key={file.name} className="flex items-center gap-3 p-4"><div className={cn("grid size-10 shrink-0 place-items-center rounded-md",file.type==="excel"?"bg-risk-low-soft text-risk-low":"bg-risk-high-soft text-risk-high")}>{file.type==="excel"?<FileSpreadsheet className="size-5"/>:<FileText className="size-5"/>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="mt-1 text-xs text-muted-foreground">{file.size} · {file.status === "financial-read" ? "两期财务数据已读取" : "已上传，暂未纳入自动分析"}</p></div><StatusTag tone={file.status === "financial-read" ? "low" : "blue"}>{file.status === "financial-read" ? "已读取" : "已上传"}</StatusTag></div>)}</div>
+        <div className="border-t border-border bg-primary-subtle/50 px-5 py-3"><p className="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 text-risk-low" />已识别上传文件，其中 Excel 两期财务数据可用于风险分析</p></div>
       </Card>
     </div><div className="mt-6">
   {financialData && (
@@ -417,36 +473,27 @@ function CustomerPortrait({ financialData, onNext }: { financialData: Awaited<Re
 }
 
 function RiskAnalysis({
-  financialData,
+  riskAnalysis,
   onEvidence,
 }: {
-  financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null;
+  riskAnalysis: RiskAnalysisResult | null;
   onEvidence: () => void;
 }) {
-  const previous = financialData?.periods[0].data ?? {};
-  const current = financialData?.periods[1].data ?? {};
-
-  const risks = financialData
-    ? analyzeFinancialRisk(previous, current).map((risk) => ({
+  const risks = riskAnalysis
+    ? riskAnalysis.items.map((risk) => ({
         ...risk,
-        label:
-          risk.level === "high"
-            ? "高风险"
-            : risk.level === "medium"
-              ? "中风险"
-              : "低风险",
+        label: getRiskLabel(risk.level),
         tone: risk.level,
         source: "已上传两期财务数据 · 自动计算",
         text: risk.description,
       }))
     : [];
 
-  const highCount = risks.filter((risk) => risk.tone === "high").length;
-  const mediumCount = risks.filter((risk) => risk.tone === "medium").length;
-  const lowCount = risks.filter((risk) => risk.tone === "low").length;
+  const highCount = riskAnalysis?.counts.high ?? 0;
+  const mediumCount = riskAnalysis?.counts.medium ?? 0;
+  const lowCount = riskAnalysis?.counts.low ?? 0;
 
-  const overallRisk =
-    highCount > 0 ? "high" : mediumCount > 0 ? "medium" : "low";
+  const overallRisk = riskAnalysis?.overallLevel ?? "low";
 
   const overallRiskLabel =
     overallRisk === "high"
@@ -484,16 +531,40 @@ function RiskAnalysis({
   </>;
 }
 
-function Evidence({ onBack, onSource, onReport }: { onBack: () => void; onSource: () => void; onReport: () => void }) {
-  const steps=["经营现金流由正转负","现金回款能力可能发生变化","需要关注短期资金压力","建议进一步核查客户回款及应收账款情况"];
+function Evidence({ financialData, onBack, onSource, onReport }: { financialData: FinancialDataResult | null; onBack: () => void; onSource: () => void; onReport: () => void }) {
+  const hasTwoPeriods = Boolean(financialData && financialData.periods.length >= 2);
+  const previous = hasTwoPeriods ? financialData!.periods[0] : undefined;
+  const current = hasTwoPeriods ? financialData!.periods[1] : undefined;
+  const previousValue = previous?.data.operatingCashFlow;
+  const currentValue = current?.data.operatingCashFlow;
+  const changeValue = previousValue !== undefined && currentValue !== undefined
+    ? currentValue - previousValue
+    : undefined;
+  const formatAmount = (value: number | undefined) =>
+    value === undefined ? "暂不可用" : `${value > 0 ? "+" : ""}${value.toLocaleString()}`;
+  const hasCashFlowValues = previousValue !== undefined && currentValue !== undefined;
+  const judgment = !hasCashFlowValues
+    ? "当前缺少两期经营活动现金流指标，暂无法生成完整风险判断。"
+    : `${current!.period}年经营活动现金流由${previous!.period}年的${formatAmount(previousValue)}万元${currentValue < previousValue ? "下降" : "变化"}至${formatAmount(currentValue)}万元，现金流表现发生明显变化。建议重点核查主要客户回款情况、应收账款变化及经营现金流形成原因。`;
+  const steps = [
+    previousValue !== undefined && currentValue !== undefined
+      ? previousValue >= 0 && currentValue < 0
+        ? "经营活动现金流由正转负"
+        : "经营活动现金流发生变化"
+      : "经营活动现金流数据暂不可用",
+    "现金回款能力可能发生变化",
+    "需要关注短期资金压力",
+    "建议进一步核查客户回款及应收账款情况",
+  ];
+
   return <><PageHeader title="风险依据详情" description="查看风险判断的关键数据、分析逻辑与原始资料出处。" />
-    <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+    {!hasTwoPeriods ? <Card className="p-5 text-sm text-muted-foreground">当前缺少足够的两期财务数据，暂无法生成该风险依据</Card> : <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
       <div className="space-y-6">
-        <Card><div className="border-b border-border p-5 lg:p-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md bg-risk-high-soft text-risk-high"><AlertTriangle className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold text-navy">经营现金流风险</h2><StatusTag tone="high">高风险</StatusTag></div><p className="mt-1 text-xs text-muted-foreground">风险编号：RISK-CF-001</p></div></div></div><div className="p-5 lg:p-6"><h3 className="text-sm font-semibold text-navy">AI判断</h3><p className="mt-2 rounded-md border-l-2 border-risk-high bg-risk-high-soft/50 px-4 py-3 text-sm leading-6">2025年经营活动现金流由2024年的+80万元下降至-125万元，现金流表现发生明显变化。建议重点核查主要客户回款情况、应收账款变化及经营现金流形成原因。</p><h3 className="mb-3 mt-6 text-sm font-semibold text-navy">关键数据对比</h3><div className="grid gap-3 sm:grid-cols-3"><DataPoint label="2024年" value="+80万元" tone="low" /><DataPoint label="2025年" value="-125万元" tone="high" /><DataPoint label="同比变化" value="-205万元" tone="high" /></div></div></Card>
+        <Card><div className="border-b border-border p-5 lg:p-6"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-md bg-risk-high-soft text-risk-high"><AlertTriangle className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold text-navy">经营现金流风险</h2><StatusTag tone="high">高风险</StatusTag></div><p className="mt-1 text-xs text-muted-foreground">风险编号：RISK-CF-001</p></div></div></div><div className="p-5 lg:p-6"><h3 className="text-sm font-semibold text-navy">AI判断</h3><p className="mt-2 rounded-md border-l-2 border-risk-high bg-risk-high-soft/50 px-4 py-3 text-sm leading-6">{judgment}</p><h3 className="mb-3 mt-6 text-sm font-semibold text-navy">关键数据对比</h3><div className="grid gap-3 sm:grid-cols-3"><DataPoint label={`${previous!.period}年`} value={`${formatAmount(previousValue)}万元`} tone={previousValue !== undefined && previousValue < 0 ? "high" : "low"} /><DataPoint label={`${current!.period}年`} value={`${formatAmount(currentValue)}万元`} tone={currentValue !== undefined && currentValue < 0 ? "high" : "low"} /><DataPoint label="金额变化" value={`${formatAmount(changeValue)}万元`} tone={changeValue !== undefined && changeValue < 0 ? "high" : "low"} /></div></div></Card>
         <Card className="p-5 lg:p-6"><div className="mb-5 flex items-center gap-2"><Bot className="size-5 text-primary" /><h2 className="font-semibold text-navy">AI分析推理逻辑</h2></div><div className="grid gap-2 md:grid-cols-4">{steps.map((step,index)=><div key={step} className="flex items-center md:flex-col"><div className="relative flex flex-1 items-center md:w-full"><div className="flex min-h-24 w-full items-center justify-center rounded-md border border-border bg-muted/50 p-3 text-center text-sm font-medium leading-6 text-navy"><span className="mr-2 text-xs text-primary">0{index+1}</span>{step}</div>{index<steps.length-1&&<ArrowRight className="mx-2 hidden size-4 shrink-0 text-muted-foreground md:block" />}</div>{index<steps.length-1&&<div className="mx-3 h-5 w-px bg-border md:hidden" />}</div>)}</div></Card>
       </div>
-      <Card className="h-fit p-5"><div className="flex items-center gap-2"><FileSearch className="size-5 text-primary"/><h2 className="font-semibold text-navy">溯源依据</h2></div><div className="mt-5 rounded-md border border-border p-4"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-risk-high-soft text-risk-high"><FileText className="size-5"/></div><div><p className="text-sm font-medium">2025年度财务报告.pdf</p><p className="mt-1 text-xs text-muted-foreground">第12页 · 现金流量表</p></div></div><div className="mt-4 border-l-2 border-risk-medium bg-risk-medium-soft/50 px-3 py-3 text-sm leading-6">原文摘要：“经营活动产生的现金流量净额为<mark className="bg-highlight px-1 font-semibold text-foreground">-125万元</mark>，上年同期为80万元。”</div><div className="mt-4 space-y-2 border-t border-border pt-4 text-xs text-muted-foreground"><p>来源类型：企业财务资料</p><p className="flex items-center gap-1.5 text-risk-low"><CheckCircle2 className="size-3.5" />数据已关联至本次风险分析</p></div><Button className="mt-4 w-full" variant="outline" onClick={onSource}><FileSearch className="size-4"/>查看原文</Button></div></Card>
-    </div>
+      <Card className="h-fit p-5"><div className="flex items-center gap-2"><FileSearch className="size-5 text-primary"/><h2 className="font-semibold text-navy">溯源依据</h2></div><div className="mt-5 rounded-md border border-border p-4"><div className="flex gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-risk-high-soft text-risk-high"><FileSpreadsheet className="size-5"/></div><div className="min-w-0"><p className="break-all text-sm font-medium">{financialData!.sourceFileName}</p><p className="mt-1 text-xs text-muted-foreground">Excel结构化财务数据</p></div></div><div className="mt-4 border-l-2 border-risk-medium bg-risk-medium-soft/50 px-3 py-3 text-sm leading-6">结构化数据依据：{current!.period}年经营活动现金流为 {formatAmount(currentValue)} 万元，{previous!.period}年为 {formatAmount(previousValue)} 万元，两期变化为 {formatAmount(changeValue)} 万元。</div><div className="mt-4 space-y-2 border-t border-border pt-4 text-xs text-muted-foreground"><p>来源类型：Excel结构化财务数据</p><p>分析期间：{previous!.period}年 → {current!.period}年</p><p>关键指标：经营活动现金流</p><p>当前依据来自上传 Excel 的结构化数据，暂不展示 PDF 页码或原文截图。</p><p className="flex items-center gap-1.5 text-risk-low"><CheckCircle2 className="size-3.5" />数据已关联至本次风险分析</p></div><Button className="mt-4 w-full" variant="outline" onClick={onSource}><FileSearch className="size-4"/>查看数据依据</Button></div></Card>
+    </div>}
     <div className="mt-6 flex flex-col justify-between gap-4 border-t border-border pt-5 sm:flex-row sm:items-center"><p className="text-xs text-muted-foreground">该风险依据将作为分析报告中的一项风险证据。</p><div className="flex flex-col-reverse gap-3 sm:flex-row"><Button variant="outline" onClick={onBack}><ArrowLeft className="size-4"/>返回风险分析</Button><Button onClick={onReport}><Plus className="size-4"/>加入分析报告</Button></div></div>
   </>;
 }
@@ -501,10 +572,13 @@ function Evidence({ onBack, onSource, onReport }: { onBack: () => void; onSource
 function DataPoint({ label, value, tone }: { label: string; value: string; tone: "low"|"high" }) { return <div className="rounded-md border border-border bg-muted/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className={cn("mt-2 text-xl font-bold",tone==="high"?"text-risk-high":"text-risk-low")}>{value}</p></div>; }
 
 function createEmptyReportText() {
-  return `一、客户基本情况\n请上传 Excel 财务数据后，系统将自动生成客户基本情况和财务分析结论。\n\n二、经营情况\n当前未上传有效财务数据，无法生成营业收入及同比分析结论。\n\n三、财务情况\n当前未上传有效财务数据，无法生成净利润、资产负债率和经营活动现金流相关结论。\n\n四、风险分析\n1. 资料不足（中风险）：当前未上传有效财务数据，无法自动识别关键财务风险信号。\n2. 需补充核实（中风险）：建议补充两期财务数据后再生成完整报告。\n\n五、建议进一步核查事项\n1. 上传有效的 Excel 财务数据。\n2. 补充至少两期财务数据用于同比分析。\n3. 结合尽调资料进一步确认经营情况。`;
+  return `一、客户基本情况\n请上传 Excel 财务数据后，系统将自动生成客户基本情况和财务分析结论。\n\n二、经营情况\n当前未上传有效财务数据，无法生成营业收入及同比分析结论。\n\n三、财务情况\n当前未上传有效财务数据，无法生成净利润、资产负债率和经营活动现金流相关结论。\n\n四、风险分析\n当前未上传有效财务数据，无法自动识别关键财务风险信号。\n\n五、建议进一步核查事项\n1. 上传有效的 Excel 财务数据。\n2. 补充至少两期财务数据后再生成风险分析。\n3. 结合尽调资料进一步确认经营情况。`;
 }
 
-function buildReportText(financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null) {
+function buildReportText(
+  financialData: FinancialDataResult | null,
+  riskAnalysis: RiskAnalysisResult | null,
+) {
   if (!financialData || financialData.periods.length < 2) {
     return createEmptyReportText();
   }
@@ -543,31 +617,31 @@ function buildReportText(financialData: Awaited<ReturnType<typeof parseFinancial
       ? `由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负`
       : `较上期${operatingCashFlowChangeText}`;
 
-  const riskSummary = currentMetrics.debtRatio !== undefined && previous.operatingCashFlow !== undefined
-    ? "资产负债率及现金流情况需结合负债结构与回款情况进一步判断。"
-    : "资产负债率水平需结合负债结构及偿债能力进一步判断。";
+  const riskText = riskAnalysis?.items
+    .map((risk, index) => `${index + 1}. ${risk.title}（${getRiskLabel(risk.level)}）：${risk.description}`)
+    .join("\n") ?? "当前暂无可用风险分析结果。";
 
-  return `一、客户基本情况\nXX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。\n\n二、经营情况\n${financialData.periods[1].period}年营业收入${revenueText}，${revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。\n\n三、财务情况\n${financialData.periods[1].period}年净利润${netProfitText}，${netProfitYoYText}；资产负债率${debtRatioText}，${debtRatioChangeText}；经营活动现金流净额${operatingCashFlowText}，${operatingCashFlowSummary}。\n\n四、风险分析\n1. 经营现金流风险：${current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "当前经营活动现金流为负值，建议重点核查回款、应收账款和现金流形成原因。" : "经营活动现金流情况需结合回款与应收账款进一步核查。"}\n2. 盈利能力判断：${current.netProfit !== undefined && current.netProfit < 0 ? "当前净利润为负，盈利能力存在压力，建议核查成本费用及利润变动原因。" : "净利润水平根据已上传财务数据进行判断，建议核查成本与费用控制情况。"}\n3. 资产负债率判断：${riskSummary}\n4. 主营业务稳定性：结合已上传财务数据及经营信息，建议进一步核查收入结构和客户集中度。\n\n五、建议进一步核查事项\n1. 核查客户回款与应收账款变化。\n2. 了解净利润变动原因及盈利质量。\n3. 核查负债结构与短期偿债能力。\n4. 结合尽调进一步确认经营情况。`;
+  return `一、客户基本情况\nXX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。\n\n二、经营情况\n${financialData.periods[1].period}年营业收入${revenueText}，${revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。\n\n三、财务情况\n${financialData.periods[1].period}年净利润${netProfitText}，${netProfitYoYText}；资产负债率${debtRatioText}，${debtRatioChangeText}；经营活动现金流净额${operatingCashFlowText}，${operatingCashFlowSummary}。\n\n四、风险分析\n${riskText}\n\n五、建议进一步核查事项\n1. 核查客户回款与应收账款变化。\n2. 了解净利润变动原因及盈利质量。\n3. 核查负债结构与短期偿债能力。\n4. 结合尽调进一步确认经营情况。`;
 }
 
-function Report({ saved, onSave, financialData }: { saved: boolean; onSave: () => void; financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null }) {
+function Report({ saved, onSave, financialData, riskAnalysis }: { saved: boolean; onSave: () => void; financialData: FinancialDataResult | null; riskAnalysis: RiskAnalysisResult | null }) {
   const [editing,setEditing]=useState(false);
   const [hasEdited,setHasEdited]=useState(false);
-  const [reportText,setReportText]=useState(() => buildReportText(financialData));
+  const [reportText,setReportText]=useState(() => buildReportText(financialData, riskAnalysis));
   const [regenerating,setRegenerating]=useState(false);
   const [confirmed,setConfirmed]=useState(false);
 
   useEffect(() => {
-    setReportText(buildReportText(financialData));
+    setReportText(buildReportText(financialData, riskAnalysis));
     setHasEdited(false);
   }, [financialData]);
 
-  const regenerate=()=>{setEditing(false);setRegenerating(true);setConfirmed(false);window.setTimeout(()=>{setReportText(buildReportText(financialData));setHasEdited(false);setRegenerating(false);},900);};
+  const regenerate=()=>{setEditing(false);setRegenerating(true);setConfirmed(false);window.setTimeout(()=>{setReportText(buildReportText(financialData, riskAnalysis));setHasEdited(false);setRegenerating(false);},900);};
   const confirmAndExport=()=>{setConfirmed(true);const text=`贷前风险分析报告\n客户：XX科技有限公司\n\n${reportText}\n\n本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。`;const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="XX科技有限公司-贷前风险分析报告.txt";a.click();URL.revokeObjectURL(url);};
   return <><PageHeader eyebrow="XX科技有限公司" title="AI分析报告" description="AI根据已解析资料生成贷前风险分析初稿，客户经理审核后可确认并导出。" action={<div className="flex flex-wrap gap-2"><StatusTag tone={confirmed?"low":"medium"}>{confirmed?<><Check className="size-3"/>报告已确认</>:"待确认"}</StatusTag><StatusTag tone="blue"><Bot className="size-3"/>AI初稿 · 待人工审核</StatusTag></div>} />
     {confirmed&&<div className="mx-auto mb-6 flex max-w-4xl items-start gap-3 rounded-lg border border-risk-low/25 bg-risk-low-soft p-5"><CheckCircle2 className="mt-0.5 size-5 shrink-0 text-risk-low"/><div><h2 className="font-semibold text-navy">贷前风险分析报告已生成</h2><p className="mt-1 text-sm text-muted-foreground">本报告基于1份 Excel 中的两期财务数据生成，最终内容已由客户经理确认。</p></div></div>}
     <Card className="mx-auto max-w-4xl overflow-hidden"><div className="border-b-4 border-primary px-6 py-8 text-center lg:px-12"><div className="text-xs font-semibold text-primary">CREDIT RISK ASSESSMENT</div><h2 className="mt-3 text-2xl font-bold text-navy">贷前风险分析报告</h2><p className="mt-3 text-sm text-muted-foreground">客户：XX科技有限公司</p></div>
-      {regenerating?<div className="flex min-h-96 flex-col items-center justify-center px-6 py-12 text-center"><RefreshCw className="size-7 animate-spin text-primary"/><p className="mt-4 font-medium text-navy">正在重新生成分析报告……</p></div>:editing?<div className="px-6 py-8 lg:px-12"><label className="mb-3 block text-sm font-semibold text-navy" htmlFor="report-editor">报告正文</label><textarea id="report-editor" value={reportText} onChange={(event)=>setReportText(event.target.value)} className="min-h-[620px] w-full resize-y rounded-md border border-input bg-background p-4 text-sm leading-7 text-report-body outline-none focus:ring-2 focus:ring-ring"/><div className="mt-4 flex justify-end"><Button onClick={()=>{setHasEdited(true);setEditing(false)}}><Check className="size-4"/>完成编辑并保存</Button></div></div>:hasEdited?<article className="whitespace-pre-wrap px-6 py-8 text-sm leading-7 text-report-body lg:px-12">{reportText}</article>:<ReportContent financialData={financialData} />}
+      {regenerating?<div className="flex min-h-96 flex-col items-center justify-center px-6 py-12 text-center"><RefreshCw className="size-7 animate-spin text-primary"/><p className="mt-4 font-medium text-navy">正在重新生成分析报告……</p></div>:editing?<div className="px-6 py-8 lg:px-12"><label className="mb-3 block text-sm font-semibold text-navy" htmlFor="report-editor">报告正文</label><textarea id="report-editor" value={reportText} onChange={(event)=>setReportText(event.target.value)} className="min-h-[620px] w-full resize-y rounded-md border border-input bg-background p-4 text-sm leading-7 text-report-body outline-none focus:ring-2 focus:ring-ring"/><div className="mt-4 flex justify-end"><Button onClick={()=>{setHasEdited(true);setEditing(false)}}><Check className="size-4"/>完成编辑并保存</Button></div></div>:hasEdited?<article className="whitespace-pre-wrap px-6 py-8 text-sm leading-7 text-report-body lg:px-12">{reportText}</article>:<ReportContent financialData={financialData} riskAnalysis={riskAnalysis} />}
       <div className="grid gap-2 border-t border-border bg-primary-subtle/40 px-6 py-4 text-xs text-muted-foreground sm:grid-cols-3 lg:px-12">{["已引用1份资料","风险项已自动识别","风险依据可追溯"].map(item=><span key={item} className="flex items-center gap-1.5"><Check className="size-3.5 text-risk-low"/>{item}</span>)}</div>
       <div className="border-t border-border bg-muted/40 px-6 py-4 text-center text-xs leading-6 text-muted-foreground">本报告由 AI 辅助生成，仅用于贷前风险识别与分析参考，不代表最终授信决策。最终判断应由相关业务人员依据尽调资料及业务制度完成。</div>
     </Card>
@@ -576,13 +650,13 @@ function Report({ saved, onSave, financialData }: { saved: boolean; onSave: () =
   </>;
 }
 
-function ReportContent({ financialData }: { financialData: Awaited<ReturnType<typeof parseFinancialExcel>> | null }) {
+function ReportContent({ financialData, riskAnalysis }: { financialData: FinancialDataResult | null; riskAnalysis: RiskAnalysisResult | null }) {
   if (!financialData || financialData.periods.length < 2) {
     return <article className="space-y-8 px-6 py-8 text-sm leading-7 text-muted-foreground lg:px-12">
       <ReportSection title="一、客户基本情况"><p>请上传 Excel 财务数据后，系统将自动生成客户基本情况和财务摘要。</p></ReportSection>
       <ReportSection title="二、经营情况"><p>当前未上传有效财务数据，无法生成营业收入及同比分析结论。</p></ReportSection>
       <ReportSection title="三、财务情况"><p>当前未上传有效财务数据，无法生成净利润、资产负债率及经营活动现金流相关结论。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value="暂不可用"/><MiniMetric label="资产负债率" value="暂不可用"/><MiniMetric label="经营现金流" value="暂不可用"/></div></ReportSection>
-      <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone="medium" number="1" title="资料不足">当前未上传有效财务数据，无法自动识别关键财务风险信号。</ReportRisk></div></ReportSection>
+      <ReportSection title="四、风险分析"><p>当前未上传有效财务数据，无法自动识别关键财务风险信号。</p></ReportSection>
       <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>上传有效的 Excel 财务数据。</li><li>补充至少两期财务数据用于同比分析。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
     </article>;
   }
@@ -591,14 +665,6 @@ function ReportContent({ financialData }: { financialData: Awaited<ReturnType<ty
   const current = financialData.periods[1].data;
   const changes = calculateMetricChanges(previous, current);
   const currentMetrics = calculateFinancialMetrics(current);
-  const netProfitRisk = current.netProfit !== undefined && current.netProfit < 0
-    ? { tone: "high" as const, title: "盈利能力风险" }
-    : changes.netProfitYoY !== undefined && changes.netProfitYoY < -10
-      ? { tone: "medium" as const, title: "盈利能力下降" }
-      : current.netProfit !== undefined && current.netProfit >= 0
-        ? { tone: "low" as const, title: "盈利能力基本稳定" }
-        : { tone: "low" as const, title: "盈利能力数据暂不可判断" };
-
   const revenueText = current.revenue !== undefined ? `${current.revenue.toLocaleString()}万元` : "暂不可用";
   const revenueYoYText = changes.revenueYoY !== undefined ? `${changes.revenueYoY >= 0 ? "增长" : "下降"}${Math.abs(changes.revenueYoY).toFixed(1)}%` : "暂不可计算";
   const netProfitText = current.netProfit !== undefined ? `${current.netProfit.toLocaleString()}万元` : "暂不可用";
@@ -614,7 +680,7 @@ function ReportContent({ financialData }: { financialData: Awaited<ReturnType<ty
     <ReportSection title="一、客户基本情况"><p>XX科技有限公司成立8年，注册资本1000万元，企业类型为有限责任公司，所属行业为软件服务。</p></ReportSection>
     <ReportSection title="二、经营情况"><p>{financialData.periods[1].period}年营业收入{revenueText}，同比{revenueYoYText}，核心软件服务业务经营情况根据已上传财务数据进行判断。</p></ReportSection>
     <ReportSection title="三、财务情况"><p>{financialData.periods[1].period}年净利润{netProfitText}，同比{netProfitYoYText}；资产负债率{debtRatioText}，较上期{debtRatioChangeText}；经营活动现金流净额{operatingCashFlowText}，{previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? `由${previous.operatingCashFlow.toLocaleString()}万元转为${current.operatingCashFlow.toLocaleString()}万元，由正转负` : `较上期${operatingCashFlowChangeText}`}。</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MiniMetric label="净利润" value={`${netProfitText} · ${netProfitYoYText}`}/><MiniMetric label="资产负债率" value={`${debtRatioText} · ${debtRatioChangeText}`}/><MiniMetric label="经营现金流" value={`${operatingCashFlowText} · ${previous.operatingCashFlow !== undefined && current.operatingCashFlow !== undefined && previous.operatingCashFlow >= 0 && current.operatingCashFlow < 0 ? "由正转负" : operatingCashFlowChangeText}`}/></div></ReportSection>
-    <ReportSection title="四、风险分析"><div className="space-y-3"><ReportRisk tone={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "high" : "medium"} number="1" title={current.operatingCashFlow !== undefined && current.operatingCashFlow < 0 ? "经营现金流风险" : "经营现金流情况"}>建议核查主要客户回款、应收账款变化及经营现金流形成原因。</ReportRisk><ReportRisk tone={netProfitRisk.tone} number="2" title={netProfitRisk.title}>建议核查成本费用及利润变动原因。</ReportRisk><ReportRisk tone={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "medium" : "low"} number="3" title={currentMetrics.debtRatio !== undefined && currentMetrics.debtRatio > 60 ? "资产负债率上升" : "资产负债率合理"}>建议结合负债结构及短期偿债能力进一步判断。</ReportRisk><ReportRisk tone="low" number="4" title="主营业务稳定">当前未发现明显集中度异常信号，建议结合尽调持续确认经营稳定性。</ReportRisk></div></ReportSection>
+    <ReportSection title="四、风险分析"><div className="space-y-3"><div className="flex items-center gap-2 text-sm text-muted-foreground"><span>综合风险等级</span><StatusTag tone={riskAnalysis?.overallLevel ?? "low"}>{getRiskLabel(riskAnalysis?.overallLevel ?? "low")}</StatusTag></div>{riskAnalysis?.items.map((risk, index)=><ReportRisk key={risk.title} tone={risk.level} number={String(index + 1)} title={risk.title}>{risk.description}</ReportRisk>)}</div></ReportSection>
     <ReportSection title="五、建议进一步核查事项"><ol className="list-decimal space-y-2 pl-5"><li>核查客户回款与应收账款。</li><li>了解净利润下降原因。</li><li>核查负债结构与短期偿债能力。</li><li>结合尽调进一步确认经营情况。</li></ol></ReportSection>
   </article>;
 }
@@ -627,4 +693,22 @@ function SettingsPage(){const [notify,setNotify]=useState(true);const [auto,setA
 function SettingField({label,value}:{label:string;value:string}){return <label className="text-sm"><span className="mb-2 block text-xs text-muted-foreground">{label}</span><input defaultValue={value} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:ring-2 focus:ring-ring"/></label>}
 function ToggleRow({title,text,value,onClick}:{title:string;text:string;value:boolean;onClick:()=>void}){return <div className="mt-5 flex items-center justify-between gap-5 border-t border-border pt-5 first:border-0"><div><p className="text-sm font-medium">{title}</p><p className="mt-1 text-xs text-muted-foreground">{text}</p></div><button role="switch" aria-checked={value} onClick={onClick} className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors",value?"bg-primary":"bg-muted-foreground/30")}><span className={cn("absolute top-1 size-4 rounded-full bg-background transition-all",value?"left-6":"left-1")}/></button></div>}
 
-function SourceModal({onClose}:{onClose:()=>void}){return <div className="fixed inset-0 z-50 grid place-items-center bg-overlay p-4" role="dialog" aria-modal="true" aria-label="原文预览"><div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg bg-background shadow-dialog"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="font-semibold text-navy">Demo演示：原文预览功能</h2><p className="mt-1 text-xs text-muted-foreground">2025年度财务报告.pdf · 第12页</p></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭"><X className="size-5"/></Button></div><div className="max-h-[68vh] overflow-y-auto bg-document p-5 sm:p-8"><div className="mx-auto min-h-[620px] max-w-xl bg-background p-8 shadow-document sm:p-12"><div className="border-b border-foreground pb-3 text-center"><h3 className="text-lg font-bold">现金流量表</h3><p className="mt-1 text-xs text-muted-foreground">2025年度 · 单位：人民币万元</p></div><div className="mt-8 grid grid-cols-[1fr_100px_100px] border-y border-border text-sm font-medium"><span className="p-3">项目</span><span className="border-l border-border p-3 text-right">本期金额</span><span className="border-l border-border p-3 text-right">上期金额</span></div>{[["销售商品、提供劳务收到的现金","2,205","2,118"],["购买商品、接受劳务支付的现金","1,496","1,332"],["支付给职工以及为职工支付的现金","615","536"],["支付的各项税费","219","170"]].map(row=><div className="grid grid-cols-[1fr_100px_100px] border-b border-border text-xs" key={row[0]}><span className="p-3">{row[0]}</span><span className="border-l border-border p-3 text-right">{row[1]}</span><span className="border-l border-border p-3 text-right">{row[2]}</span></div>)}<div className="mt-5 grid grid-cols-[1fr_100px_100px] border-y-2 border-risk-medium bg-highlight text-sm font-bold"><span className="p-3">经营活动产生的现金流量净额</span><span className="border-l border-risk-medium/30 p-3 text-right text-risk-high">-125</span><span className="border-l border-risk-medium/30 p-3 text-right">80</span></div><p className="mt-8 text-xs leading-6 text-muted-foreground">注：经营活动产生的现金流量净额较上年同期减少205万元，主要受部分项目回款周期延长及人员成本增加影响。</p><div className="mt-24 text-center text-xs text-muted-foreground">— 第 12 页 —</div></div></div><div className="flex justify-end border-t border-border px-5 py-4"><Button onClick={onClose}>完成查看</Button></div></div></div>}
+function SourceModal({ financialData, onClose }: { financialData: FinancialDataResult | null; onClose: () => void }) {
+  const hasTwoPeriods = Boolean(financialData && financialData.periods.length >= 2);
+  const previous = hasTwoPeriods ? financialData!.periods[0] : undefined;
+  const current = hasTwoPeriods ? financialData!.periods[1] : undefined;
+  const previousValue = previous?.data.operatingCashFlow;
+  const currentValue = current?.data.operatingCashFlow;
+  const changeValue = previousValue !== undefined && currentValue !== undefined
+    ? currentValue - previousValue
+    : undefined;
+  const formatAmount = (value: number | undefined) =>
+    value === undefined ? "暂不可用" : `${value > 0 ? "+" : ""}${value.toLocaleString()}`;
+  const conclusion = previousValue !== undefined && currentValue !== undefined
+    ? previousValue >= 0 && currentValue < 0
+      ? "经营活动现金流由正转负。"
+      : `经营活动现金流由${previous!.period}年的${formatAmount(previousValue)}万元变化至${current!.period}年的${formatAmount(currentValue)}万元。`
+    : "缺少有效的两期经营活动现金流数据，无法判断变化方向。";
+
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-overlay p-4" role="dialog" aria-modal="true" aria-label="数据依据详情"><div className="max-h-[90vh] w-full max-w-xl overflow-hidden rounded-lg bg-background shadow-dialog"><div className="flex items-center justify-between border-b border-border px-5 py-4"><h2 className="font-semibold text-navy">数据依据详情</h2><Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭"><X className="size-5"/></Button></div><div className="max-h-[68vh] space-y-4 overflow-y-auto p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-[120px_1fr]"><span className="text-sm text-muted-foreground">文件名</span><span className="break-all text-sm font-medium">{financialData?.sourceFileName ?? "暂无上传文件"}</span><span className="text-sm text-muted-foreground">数据类型</span><span className="text-sm">Excel结构化财务数据</span><span className="text-sm text-muted-foreground">指标</span><span className="text-sm">经营活动现金流</span><span className="text-sm text-muted-foreground">上期</span><span className="text-sm">{previous ? `${previous.period}年 / ${formatAmount(previousValue)}万元` : "暂不可用"}</span><span className="text-sm text-muted-foreground">本期</span><span className="text-sm">{current ? `${current.period}年 / ${formatAmount(currentValue)}万元` : "暂不可用"}</span><span className="text-sm text-muted-foreground">变化</span><span className="text-sm">{formatAmount(changeValue)}万元</span><span className="text-sm text-muted-foreground">结论</span><span className="text-sm">{conclusion}</span></div></div><div className="border-t border-border px-5 py-4 text-xs leading-5 text-muted-foreground">本页面展示的是系统从上传 Excel 中读取的结构化数据，不代表原始 PDF 页面或银行正式授信依据。</div></div></div>;
+}
